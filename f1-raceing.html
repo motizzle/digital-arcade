@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>F1 Raceing</title>
+<style>
+/* Fixed full-screen stage — no page pan/scroll on phone while steering. */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  position: fixed;
+  inset: 0;
+  background: #10121a;
+  display: grid;
+  place-items: center;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+canvas {
+  /* Fill the locked stage (not 100vw — that can overflow and pan on mobile). */
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  background: #1c2030;
+  touch-action: none;
+}
+
+.arcade-back{position:fixed;top:12px;left:12px;z-index:20;background:#5fd06a;color:#10121a;
+  border:0;border-radius:999px;padding:.65rem 1rem;font-weight:800;font-size:14px;
+  text-decoration:none;font-family:system-ui,sans-serif;touch-action:manipulation;}
+.arcade-back:hover{filter:brightness(1.08);}
+.byline{position:fixed;top:14px;right:12px;z-index:20;color:rgba(255,255,255,.7);
+  font:700 13px system-ui,sans-serif;pointer-events:none;text-align:right;}
+
+/* Touch-to-steer hint — the car follows your finger, no buttons needed. */
+.touch-hint{
+  position:fixed; z-index:25; left:50%; bottom:calc(20px + env(safe-area-inset-bottom, 0px));
+  transform:translateX(-50%);
+  color:rgba(255,255,255,.75); font:700 13px system-ui,sans-serif;
+  text-shadow:0 1px 4px rgba(0,0,0,.8); pointer-events:none;
+  transition:opacity .4s;
+}
+.touch-hint.gone{ opacity:0; }
+
+/* Hide the touch hint on devices that clearly have a fine pointer (desktop/laptop). */
+@media (hover:hover) and (pointer:fine){
+  .touch-hint{ display:none; }
+}
+</style>
+</head>
+<body>
+<a class="arcade-back" href="/">← Arcade</a>
+<span class="byline">by Sorkins</span>
+<canvas id="game" width="960" height="600"></canvas>
+<div class="touch-hint" id="touchHint">Touch and drag to drive</div>
+<script>
+// ================= F1 RACEING =================
+// This is JavaScript — the language that makes web games move.
+// The "canvas" is like a piece of paper we redraw 60 times every second.
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// ---- Your car: a bright yellow Lamborghini with purple wheels ----
+const car = {
+  x: canvas.width / 2, // start in the middle
+  y: 460,              // near the bottom of the screen
+  width: 64,
+  height: 110,
+  speed: 6,            // how fast it steers left and right
+};
+
+// ---- Keys ----
+// This remembers which arrow keys are being held down right now.
+// On-screen buttons write into the same map, so one steer path for all inputs.
+const keys = {};
+document.addEventListener('keydown', (e) => {
+  keys[e.key] = true;
+  // Stop the arrows from scrolling the page so they only drive the car.
+  if (e.key.startsWith('Arrow')) e.preventDefault();
+});
+document.addEventListener('keyup',   (e) => { keys[e.key] = false; });
+
+// ---- Touch to steer: drag anywhere on the road, the car follows your finger ----
+const touchDrive = { active: false, x: car.x, y: car.y };
+
+function canvasPointFromClient(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: ((clientX - rect.left) / rect.width) * canvas.width,
+    y: ((clientY - rect.top) / rect.height) * canvas.height,
+  };
+}
+
+function onCanvasPointer(e) {
+  // Don't steal presses meant for the back link.
+  if (e.target.closest && e.target.closest('a')) return;
+  e.preventDefault();
+  const p = canvasPointFromClient(e.clientX, e.clientY);
+  touchDrive.active = true;
+  touchDrive.x = p.x;
+  touchDrive.y = p.y;
+  const hint = document.getElementById('touchHint');
+  if (hint) hint.classList.add('gone');
+}
+
+function endCanvasPointer(e) {
+  if (e.target.closest && e.target.closest('a')) return;
+  e.preventDefault();
+  touchDrive.active = false;
+}
+
+canvas.addEventListener('pointerdown', onCanvasPointer, { passive: false });
+canvas.addEventListener('pointermove', (e) => {
+  if (!touchDrive.active) return;
+  onCanvasPointer(e);
+}, { passive: false });
+canvas.addEventListener('pointerup', endCanvasPointer, { passive: false });
+canvas.addEventListener('pointercancel', endCanvasPointer, { passive: false });
+
+// Block rubber-band / edge swipe pan on the whole page while playing.
+document.addEventListener('touchmove', (e) => {
+  if (e.target.closest && e.target.closest('a')) return;
+  e.preventDefault();
+}, { passive: false });
+
+// ---- The road ----
+// The dashed line in the middle scrolls to make it feel like we're driving.
+let dash = 0;
+
+// ---- Obstacles: cars and debris to dodge ----
+// This is a list (an "array") that holds everything you have to avoid.
+const obstacles = [];
+
+// How much grass on each side. Small number = a big, almost full-screen road.
+const roadMargin = 30;
+
+// The two lanes: one on the LEFT side of the road, one on the RIGHT side.
+const leftLaneX = 260;
+const rightLaneX = 700;
+
+// A timer that counts frames. We run at 60 frames per second, so 60 frames = 1 second.
+let spawnTimer = 0;
+let nextSpawn = 60; // wait at least 1 second before the first one
+
+// The score: how many cars and how many debris you have dodged.
+let carsDodged = 0;
+let debrisDodged = 0;
+
+// How far you've driven down this really long road, in meters.
+let distance = 0;
+
+function spawnObstacle() {
+  // Flip a coin for the side, and another for what it is.
+  const onLeft = Math.random() < 0.5;
+  const isCar = Math.random() < 0.5;
+  obstacles.push({
+    x: onLeft ? leftLaneX : rightLaneX,
+    y: -120,                 // start just above the top of the screen
+    width: isCar ? 60 : 46,
+    height: isCar ? 100 : 46,
+    speed: 4,                // how fast it slides down toward you
+    isCar: isCar,
+    // Enemy CARS swerve recklessly sideways; debris just falls straight.
+    swerve: isCar ? (Math.random() < 0.5 ? -9 : 9) : 0,
+  });
+}
+
+function drawObstacle(o) {
+  if (o.isCar) {
+    // A red enemy car with grey wheels.
+    ctx.fillStyle = '#555a66';
+    ctx.fillRect(o.x - o.width / 2 - 5, o.y + 12, 10, 24);
+    ctx.fillRect(o.x + o.width / 2 - 5, o.y + 12, 10, 24);
+    ctx.fillRect(o.x - o.width / 2 - 5, o.y + o.height - 36, 10, 24);
+    ctx.fillRect(o.x + o.width / 2 - 5, o.y + o.height - 36, 10, 24);
+    ctx.fillStyle = '#e23b3b';
+    ctx.fillRect(o.x - o.width / 2, o.y, o.width, o.height);
+    ctx.fillStyle = '#1b1f2a';
+    ctx.fillRect(o.x - 18, o.y + o.height - 40, 36, 24);
+  } else {
+    // A chunk of grey debris (a rough rock/box).
+    ctx.fillStyle = '#8a8f99';
+    ctx.fillRect(o.x - o.width / 2, o.y, o.width, o.height);
+    ctx.fillStyle = '#5f636b';
+    ctx.fillRect(o.x - o.width / 2 + 8, o.y + 8, o.width - 16, o.height - 16);
+  }
+}
+
+// Do two boxes touch? True if they overlap.
+function hits(o) {
+  return (
+    car.x - car.width / 2 < o.x + o.width / 2 &&
+    car.x + car.width / 2 > o.x - o.width / 2 &&
+    car.y < o.y + o.height &&
+    car.y + car.height > o.y
+  );
+}
+
+function drawRoad() {
+  // Green grass on the sides.
+  ctx.fillStyle = '#2e7d32';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Grey road — almost the whole screen wide now.
+  const roadX = roadMargin;
+  const roadW = canvas.width - roadX * 2;
+  ctx.fillStyle = '#3a3f4b';
+  ctx.fillRect(roadX, 0, roadW, canvas.height);
+
+  // Solid white edge lines.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(roadX, 0, 8, canvas.height);
+  ctx.fillRect(roadX + roadW - 8, 0, 8, canvas.height);
+
+  // Dashed yellow line in the middle that scrolls down.
+  ctx.fillStyle = '#ffd23f';
+  for (let y = -60 + dash; y < canvas.height; y += 60) {
+    ctx.fillRect(canvas.width / 2 - 4, y, 8, 34);
+  }
+
+  // Roadside markers whooshing by on both edges — makes the road feel LONG.
+  ctx.fillStyle = '#ffffff';
+  for (let y = -80 + dash * 1.5; y < canvas.height; y += 80) {
+    ctx.fillRect(roadX + 14, y, 6, 22);                 // left edge posts
+    ctx.fillRect(roadX + roadW - 20, y, 6, 22);         // right edge posts
+  }
+
+  dash += 8 * speedBoost(); // road scrolls faster as you speed up
+  if (dash > 60) dash -= 60;
+}
+
+// ---- Draw the Lamborghini ----
+function drawCar() {
+  const x = car.x;
+  const y = car.y;
+
+  // Purple wheels (drawn first so the body sits on top).
+  ctx.fillStyle = '#8e2de2';
+  ctx.fillRect(x - car.width / 2 - 6, y + 10, 12, 26); // front-left
+  ctx.fillRect(x + car.width / 2 - 6, y + 10, 12, 26); // front-right
+  ctx.fillRect(x - car.width / 2 - 6, y + 70, 12, 26); // back-left
+  ctx.fillRect(x + car.width / 2 - 6, y + 70, 12, 26); // back-right
+
+  // Bright yellow body — a low, pointy Lamborghini shape.
+  ctx.fillStyle = '#ffe11a';
+  ctx.beginPath();
+  ctx.moveTo(x, y);                                    // sharp nose
+  ctx.lineTo(x - car.width / 2, y + 34);
+  ctx.lineTo(x - car.width / 2, y + car.height);
+  ctx.lineTo(x + car.width / 2, y + car.height);
+  ctx.lineTo(x + car.width / 2, y + 34);
+  ctx.closePath();
+  ctx.fill();
+
+  // Dark windshield.
+  ctx.fillStyle = '#1b1f2a';
+  ctx.fillRect(x - 20, y + 40, 40, 26);
+}
+
+// ---- Levels ----
+// You climb a level every 1,000 meters, all the way up to Level 9.
+// Level 1 = 1,000 m, Level 2 = 2,000 m, ... Level 9 = 9,000 m to win!
+function level() {
+  return Math.min(9, Math.floor(distance / 1000) + 1);
+}
+
+// The meters you need to reach to finish the level you're on right now.
+function levelGoal() {
+  return level() * 1000;
+}
+
+// Each level is harder than the last: every level adds half again as fast.
+// Level 1 = normal, Level 9 = 5 times faster. That's the difficulty ramp!
+function speedBoost() {
+  return 1 + (level() - 1) * 0.5;
+}
+
+// ---- One frame of the game ----
+function update() {
+  // Keyboard arrows (desktop) write into `keys`.
+  if (keys['ArrowLeft'])  car.x -= car.speed;
+  if (keys['ArrowRight']) car.x += car.speed;
+  if (keys['ArrowUp'])   car.y -= car.speed;
+  if (keys['ArrowDown']) car.y += car.speed;
+
+  // Touch: drag on the road to steer — car eases toward your finger.
+  if (touchDrive.active) {
+    const dx = touchDrive.x - car.x;
+    const dy = touchDrive.y - car.y;
+    car.x += Math.max(-car.speed * 2.5, Math.min(car.speed * 2.5, dx * 0.35));
+    car.y += Math.max(-car.speed * 2.5, Math.min(car.speed * 2.5, dy * 0.35));
+  }
+
+  // Keep the car from driving off the top or bottom.
+  if (car.y < 0) car.y = 0;
+  if (car.y + car.height > canvas.height) car.y = canvas.height - car.height;
+
+  // Keep the car on the road.
+  const roadX = roadMargin;
+  if (car.x - car.width / 2 - 6 < roadX + 8) car.x = roadX + 8 + car.width / 2 + 6;
+  if (car.x + car.width / 2 + 6 > canvas.width - roadX - 8) car.x = canvas.width - roadX - 8 - car.width / 2 - 6;
+
+  // Spawn a new obstacle once the timer passes the wait time.
+  spawnTimer += 1;
+  if (spawnTimer >= nextSpawn) {
+    spawnObstacle();
+    spawnTimer = 0;
+    // Wait 1 to 2 seconds normally — but the faster you go, the SHORTER
+    // the wait, so traffic gets thicker and thicker the farther you drive.
+    nextSpawn = (60 + Math.floor(Math.random() * 60)) / speedBoost();
+  }
+
+  drawRoad();
+
+  // Move every obstacle down, draw it, and check for a crash.
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const o = obstacles[i];
+    o.y += o.speed * speedBoost();
+    // Swerve reckless cars left and right, bouncing off the road edges.
+    // The swerve speeds up too the farther you've driven!
+    o.x += o.swerve * speedBoost();
+    const leftWall = roadMargin + 8 + o.width / 2;
+    const rightWall = canvas.width - roadMargin - 8 - o.width / 2;
+    if (o.x < leftWall)  { o.x = leftWall;  o.swerve = -o.swerve; }
+    if (o.x > rightWall) { o.x = rightWall; o.swerve = -o.swerve; }
+    drawObstacle(o);
+    if (hits(o)) {
+      // Crash! Send the car back to the start, clear the road, reset the score.
+      car.x = canvas.width / 2;
+      car.y = 460;
+      obstacles.length = 0;
+      carsDodged = 0;
+      debrisDodged = 0;
+      distance = 0;   // back to the start — slow again!
+      break;
+    }
+    // Once an obstacle drives off the bottom, you dodged it — count it!
+    if (o.y > canvas.height) {
+      if (o.isCar) carsDodged += 1;
+      else debrisDodged += 1;
+      obstacles.splice(i, 1);
+    }
+  }
+
+  drawCar();
+
+  // Show the scoreboard in the top-left corner.
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillText('Cars dodged: ' + carsDodged, 20, 36);
+  ctx.fillText('Debris dodged: ' + debrisDodged, 20, 68);
+
+  // Count up the meters — this road just keeps going and going!
+  distance += 1;
+  ctx.fillText('Distance: ' + distance + ' m', 20, 100);
+
+  // Show which level you're on and the goal to beat it.
+  if (distance >= 9000) {
+    // You made it all the way through Level 9 — you win!
+    ctx.fillStyle = '#ffe11a';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillText('LEVEL 9 — YOU WIN! 🏆', 20, 138);
+  } else {
+    ctx.fillStyle = '#ffe11a';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillText('LEVEL ' + level() + '  —  reach ' + levelGoal() + ' m', 20, 136);
+  }
+
+  requestAnimationFrame(update);
+}
+
+update(); // start the game!
+
+</script>
+</body>
+</html>

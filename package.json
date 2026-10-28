@@ -1,0 +1,10 @@
+{
+  "name": "sorkin-arcade",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sorkin Arcade — fractal-sphere games hub.",
+  "scripts": {
+    "test": "node --test engine/*.test.js",
+    "build": "node build.js hub && node build.js pong && node build.js serpent && node build.js tictactoe && node build.js grok-tictactoe && node build.js connect4"
+  }
+}

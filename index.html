@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sorkin Arcade</title>
+<link rel="icon" href="https://motisorkin.com/favicon.ico" sizes="32x32" />
+<link rel="icon" href="https://motisorkin.com/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="https://motisorkin.com/apple-touch-icon.png" />
+<meta property="og:site_name" content="Moti Sorkin" />
+<meta property="og:title" content="Arcade — Moti Sorkin" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<!-- highscores:begin — inlined from engine/highscores.js by `node build.js hub`; edit the source there, not here -->
+<script>
+/* ============================================================================
+   Arcade High Scores
+   ----------------------------------------------------------------------------
+   A tiny, DOM-agnostic high-score store shared by the hub and every game.
+
+   Two layers, both pure-ish and unit-tested (see highscores.test.js):
+     - ranking logic   : qualifies() / rankInsert() / sortTrim()  (no I/O)
+     - persistence      : load() / save() / submit() / top()       (Storage)
+
+   Scores live in localStorage under `arcade.hs.<gameId>` as a JSON array of
+   { name, score, ts }. `order` is 'desc' (higher is better, default) or 'asc'
+   (lower is better). The board is capped to MAX (top ten — classic arcade).
+
+   Runs in the browser (window.HighScores) and Node (module.exports) so the
+   ranking logic can be tested without a DOM. Storage is injectable, so tests
+   pass an in-memory stub instead of localStorage.
+   ========================================================================== */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.HighScores = factory();
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  const MAX = 10;                 // top ten
+  const PREFIX = 'arcade.hs.';
+  const PLAYER_KEY = 'arcade.player';        // the identity picked this session
+  const LAST_PLAYER_KEY = 'arcade.player.last';  // previous answer, prompt prefill only
+
+  function cmp(order) {
+    // Sort so the BEST score is first. 'asc' => smaller is better.
+    return (order === 'asc') ? (a, b) => a - b : (a, b) => b - a;
+  }
+
+  // Sort a list best-first and trim to `max`. Ties broken by earliest ts
+  // (the older record keeps the higher rank — first to get there wins).
+  function sortTrim(list, order, max) {
+    if (max == null) max = MAX;
+    const c = cmp(order);
+    const out = (list || []).slice().sort(
+      (a, b) => c(a.score, b.score) || ((a.ts || 0) - (b.ts || 0))
+    );
+    return out.slice(0, max);
+  }
+
+  // Would `score` earn a spot on the board?
+  function qualifies(list, score, order, max) {
+    order = order || 'desc';
+    if (max == null) max = MAX;
+    if (typeof score !== 'number' || !isFinite(score)) return false;
+    const board = sortTrim(list, order, max);
+    if (board.length < max) return true;
+    const worst = board[board.length - 1];
+    return (order === 'asc') ? (score < worst.score) : (score > worst.score);
+  }
+
+  // Insert `entry` and re-rank. Returns { list, rank }; rank is the 0-based
+  // position of `entry` on the trimmed board, or -1 if it didn't make it.
+  function rankInsert(list, entry, order, max) {
+    order = order || 'desc';
+    if (max == null) max = MAX;
+    const merged = sortTrim((list || []).concat([entry]), order, max);
+    return { list: merged, rank: merged.indexOf(entry) };
+  }
+
+  // ---- persistence ---------------------------------------------------------
+  function defaultStorage() {
+    try { if (typeof localStorage !== 'undefined') return localStorage; } catch (e) {}
+    return null;
+  }
+  function key(gameId) { return PREFIX + gameId; }
+
+  function load(gameId, storage) {
+    storage = storage || defaultStorage();
+    if (!storage) return [];
+    try {
+      const raw = storage.getItem(key(gameId));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr)
+        ? arr.filter((e) => e && typeof e.score === 'number' && isFinite(e.score))
+        : [];
+    } catch (e) { return []; }
+  }
+
+  function save(gameId, list, storage) {
+    storage = storage || defaultStorage();
+    if (!storage) return;
+    try { storage.setItem(key(gameId), JSON.stringify(list)); } catch (e) {}
+  }
+
+  // Normalize a name to the arcade shape: A–Z0–9, capped to maxLen (default 3,
+  // the classic initials length; win-tally boards pass a longer maxLen so real
+  // player names like MOTI / ADA survive).
+  function sanitizeName(name, maxLen) {
+    if (maxLen == null) maxLen = 3;
+    const s = String(name == null ? '' : name).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, maxLen);
+    return s || 'AAA';
+  }
+
+  function now() { try { return Date.now(); } catch (e) { return 0; } }
+
+  // Record a score. Returns { list, rank, entry } — rank -1 means off the board
+  // (still saved to nothing; the caller usually checks qualifies() first).
+  function submit(gameId, name, score, opts) {
+    opts = opts || {};
+    const order = opts.order || 'desc';
+    const max = (opts.max == null) ? MAX : opts.max;
+    const storage = opts.storage;
+    const ts = (opts.ts == null) ? now() : opts.ts;
+    const entry = { name: sanitizeName(name, opts.maxLen), score: score, ts: ts };
+    const { list, rank } = rankInsert(load(gameId, storage), entry, order, max);
+    save(gameId, list, storage);
+    return { list: list, rank: rank, entry: entry };
+  }
+
+  // Cumulative tally: add `delta` (default 1) to the named player's running
+  // total for a game, keyed by name (one row per player). Used by win-based
+  // games (tic-tac-toe, Connect 4) where the "high score" is total wins.
+  function bump(gameId, name, delta, opts) {
+    opts = opts || {};
+    const storage = opts.storage;
+    const order = opts.order || 'desc';
+    const max = (opts.max == null) ? MAX : opts.max;
+    const inc = (delta == null) ? 1 : delta;
+    const nm = sanitizeName(name, opts.maxLen == null ? 12 : opts.maxLen);
+    const list = load(gameId, storage);
+    let entry = null;
+    for (let i = 0; i < list.length; i++) { if (list[i].name === nm) { entry = list[i]; break; } }
+    if (entry) entry.score += inc;
+    else list.push({ name: nm, score: inc, ts: (opts.ts == null ? now() : opts.ts) });
+    const trimmed = sortTrim(list, order, max);
+    save(gameId, trimmed, storage);
+    return trimmed;
+  }
+
+  // ---- shared player identity ----------------------------------------------
+  // "Who's playing?" is asked once per browser SESSION. The answer lives in
+  // sessionStorage: it survives navigating between the hub and the games
+  // (same-tab page loads share it) but a fresh visit asks again — kids swap
+  // chairs between visits. The most recent answer is also kept in
+  // localStorage, purely as a prompt prefill, never as an identity.
+  function defaultSession() {
+    try { if (typeof sessionStorage !== 'undefined') return sessionStorage; } catch (e) {}
+    return null;
+  }
+
+  function readName(storage, k) {
+    if (!storage) return '';
+    try {
+      const raw = storage.getItem(k);
+      if (!raw) return '';                       // unset — don't fabricate 'AAA'
+      return String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    } catch (e) { return ''; }
+  }
+
+  function player(storage) {
+    return readName(storage || defaultSession(), PLAYER_KEY);
+  }
+
+  // The previous session's name — offered as a prefill in name prompts.
+  function lastPlayer(storage) {
+    return readName(storage || defaultStorage(), LAST_PLAYER_KEY);
+  }
+
+  function setPlayer(name, storage) {
+    storage = storage || defaultSession();
+    const nm = sanitizeName(name, 12);
+    if (storage) { try { storage.setItem(PLAYER_KEY, nm); } catch (e) {} }
+    const last = defaultStorage();
+    if (last) { try { last.setItem(LAST_PLAYER_KEY, nm); } catch (e) {} }
+    return nm;
+  }
+
+  function top(gameId, n, opts) {
+    opts = opts || {};
+    const board = sortTrim(load(gameId, opts.storage), opts.order || 'desc', opts.max || MAX);
+    return (n != null) ? board.slice(0, n) : board;
+  }
+
+  function clear(gameId, storage) {
+    storage = storage || defaultStorage();
+    if (storage) { try { storage.removeItem(key(gameId)); } catch (e) {} }
+  }
+
+  return {
+    MAX, PREFIX, PLAYER_KEY, LAST_PLAYER_KEY,
+    cmp, sortTrim, qualifies, rankInsert, sanitizeName,
+    key, load, save, submit, bump, top, clear,
+    player, setPlayer, lastPlayer,
+  };
+});
+</script>
+<!-- highscores:end -->
+<style>
+  :root {
+    --bg: #06060c; --fg: #f3ead9; --muted: #8b8b9c;
+    --neon1: #ff7a2c; --neon2: #ff3ca6; --line: #1c1c2b;
+    --px: 'Press Start 2P', ui-monospace, "SF Mono", Menlo, monospace;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100vh;
+    background: #06060c;
+    color: var(--fg);
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  /* CRT scanlines + vignette overlays (decorative; muted under reduced motion). */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 90;
+    background: repeating-linear-gradient(to bottom,
+      rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.28) 2px 3px);
+    mix-blend-mode: multiply; opacity: 0.6;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 89;
+    background: radial-gradient(ellipse at 50% 38%, transparent 52%, rgba(0,0,0,0.6) 100%);
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 18px 70px; position: relative; z-index: 1; }
+
+  /* ---- Marquee ---- */
+  .marquee { text-align: center; margin-bottom: 30px; }
+  .marquee h1 {
+    margin: 0; font-family: var(--px);
+    font-size: clamp(15px, 4.2vw, 30px); line-height: 1.4; letter-spacing: 1px; white-space: normal;
+    color: #ffe9d6;
+    text-shadow:
+      0 0 4px #fff, 0 0 10px var(--neon1), 0 0 22px var(--neon1),
+      0 0 40px var(--neon2), 0 0 70px var(--neon2);
+    animation: flicker 4.5s infinite steps(60);
+  }
+  @keyframes flicker {
+    0%,18%,22%,25%,53%,57%,100% { opacity: 1; }
+    20%,24%,55% { opacity: 0.72; }
+  }
+  .rule {
+    height: 2px; margin: 14px auto 0; max-width: 420px;
+    background: linear-gradient(90deg, transparent, var(--neon1), var(--neon2), transparent);
+    box-shadow: 0 0 10px var(--neon1);
+  }
+
+  /* ---- Creators reel (smaller, below the games) ---- */
+  .creators-label { margin-top: 6px; }
+  .reel { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin: 14px 0 4px; }
+
+  /* AI creators (Claude / Grok) — borderless, slick logos, shown side by side
+     on their own row below the human creators. */
+  .reel-ai { display: flex; justify-content: center; gap: 34px; margin: 16px 0 4px; }
+  .char.ai .logo {
+    width: 66px; height: 66px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .char.ai .logo svg { width: 100%; height: 100%; display: block; }
+  /* Claude — coral sunburst, full strength + soft glow, no box. */
+  .char.ai .logo svg.star { opacity: 1; filter: drop-shadow(0 0 8px rgba(217,119,87,0.65)); }
+  .char.ai .logo svg.star line { stroke-width: 1.6; }
+  /* Grok — round slick disc badge. */
+  .char.ai .logo svg.grok-round { filter: drop-shadow(0 0 8px rgba(255,255,255,0.25)); }
+  .char { width: 84px; text-align: center; }
+  .char .frame {
+    position: relative; aspect-ratio: 1; border: 3px solid var(--c);
+    background:
+      linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.45)),
+      conic-gradient(from 45deg, #14141f 0 25%, #0e0e17 0 50%, #14141f 0 75%, #0e0e17 0) ;
+    background-size: auto, 16px 16px;
+    box-shadow: 0 0 0 1px #000, 0 0 16px -2px var(--c), inset 0 0 18px rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; image-rendering: pixelated;
+  }
+  .char .frame img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+  .char .ph { font-family: var(--px); font-size: 20px; color: var(--c);
+              text-shadow: 0 0 10px var(--c); }
+  .char .who { font-family: var(--px); font-size: 8px; color: var(--c);
+               margin-top: 8px; text-shadow: 0 0 8px var(--c); }
+  /* "now playing" caption that changes as faces rotate */
+  .char .frame .cap {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 2px;
+    font-family: var(--px); font-size: 6px; letter-spacing: 0.5px;
+    color: #fff; background: rgba(0,0,0,0.55); text-shadow: 0 0 6px var(--c);
+  }
+
+  /* ---- Cabinet / game select ---- */
+  .select-label {
+    text-align: center; font-family: var(--px); font-size: 9px; letter-spacing: 2px;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  ol.games {
+    list-style: none; margin: 0; padding: 0;
+    border-top: 1px solid var(--line);
+  }
+  ol.games li { border-bottom: 1px solid var(--line); }
+  ol.games a {
+    display: grid; grid-template-columns: 30px 1fr auto; align-items: center;
+    gap: 14px; padding: 16px 12px 16px 30px; position: relative;
+    transition: background 0.12s;
+  }
+  ol.games a::before {
+    content: "▶"; position: absolute; left: 6px; color: var(--ac);
+    opacity: 0; transform: translateX(-4px); transition: opacity 0.12s, transform 0.12s;
+    text-shadow: 0 0 8px var(--ac);
+  }
+  ol.games li.active a, ol.games a:hover { background: rgba(255,255,255,0.035); }
+  ol.games li.active a::before, ol.games a:hover::before { opacity: 1; transform: none; }
+  .g-num { font-family: var(--px); font-size: 12px; color: var(--muted); }
+  .g-main { min-width: 0; }
+  .g-title { font-family: var(--px); font-size: 14px; color: #fff; letter-spacing: 0.5px;
+             text-shadow: 0 0 10px var(--ac); }
+  .g-meta { color: var(--muted); font-size: 12.5px; margin-top: 8px; letter-spacing: 0.04em; }
+  .g-right { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .g-by { color: var(--muted); font-size: 11px; }
+  .badge {
+    font-family: var(--px); font-size: 8px; letter-spacing: 0.5px;
+    color: var(--bc); border: 1px solid var(--bc); border-radius: 3px;
+    padding: 4px 6px; text-shadow: 0 0 6px var(--bc);
+  }
+  .star { width: 16px; height: 16px; display: block; opacity: 0.6; }
+  .star line { stroke: #d97757; stroke-width: 2; stroke-linecap: round; }
+
+  /* AI participants (Claude / Grok) render as their own tiny icon, not a
+     name-box like the human players — deliberately small and unobtrusive. */
+  .g-icon { width: 13px; height: 13px; display: block; flex: none; opacity: 0.85; }
+  .g-icon.star { opacity: 1; }
+  .g-icon.grok path { fill: var(--gc, #e8e8e8); }
+
+  /* ---- High scores link → dedicated /scores page ---- */
+  .scores-link { text-align: center; margin: 40px 0 44px; }
+  .scores-link a {
+    font-family: var(--px); font-size: 11px; letter-spacing: 1.5px;
+    color: var(--neon2); border: 1px solid var(--neon2); border-radius: 6px;
+    padding: 13px 20px; display: inline-block; text-shadow: 0 0 8px var(--neon2);
+    transition: color 0.12s, box-shadow 0.12s, border-color 0.12s;
+  }
+  .scores-link a:hover { color: #fff; border-color: #fff; box-shadow: 0 0 16px -2px var(--neon2); }
+
+  /* ---- Coin ---- */
+  .coin {
+    text-align: center; margin-top: 38px;
+    font-family: var(--px); font-size: 11px; letter-spacing: 1px;
+    color: #ffe9d6; text-shadow: 0 0 8px var(--neon1), 0 0 18px var(--neon2);
+    animation: blink 1.1s steps(2, jump-none) infinite;
+  }
+  .foot { text-align: center; margin-top: 22px; }
+  .foot a { color: var(--muted); font-size: 11px; }
+  .foot a:hover { color: var(--neon1); }
+  @keyframes blink { 50% { opacity: 0.2; } }
+
+  @media (max-width: 460px) {
+    ol.games a { grid-template-columns: 24px 1fr; }
+    .g-right { grid-column: 2; justify-content: flex-start; margin-top: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee h1 { animation: none; }
+    .coin { animation: none; }
+    ol.games a, ol.games a::before { transition: none; }
+  }
+
+  /* ---- Player identity (asked once per session; shown at the top) ---- */
+  .player-bar { text-align: center; margin: -8px 0 26px; }
+  .player-bar button {
+    font-family: var(--px); font-size: 10px; letter-spacing: 1.5px; cursor: pointer;
+    color: var(--muted); background: transparent; border: 1px solid var(--line);
+    border-radius: 999px; padding: 12px 18px;
+    transition: color 0.12s, border-color 0.12s, box-shadow 0.12s;
+  }
+  .player-bar .pname { color: var(--neon1); text-shadow: 0 0 8px var(--neon1); }
+  .player-bar button:hover {
+    color: var(--fg); border-color: var(--neon1);
+    box-shadow: 0 0 14px -4px var(--neon1);
+  }
+
+  /* Name-entry overlay (first visit + "change name"). Sized to match the
+     in-game high-score prompt's card (engine/fractal-shell.css .hs-card) —
+     same padding/radius/input-and-button scale, comfortable for a kid to
+     hit on a touch screen — while keeping the hub's own neon/pixel theme. */
+  .name-overlay {
+    position: fixed; inset: 0; z-index: 200; display: flex;
+    align-items: center; justify-content: center; padding: 20px;
+    /* No backdrop-filter: on the software-composited kiosk it re-blurs the
+       backdrop on every typing repaint and lags the input. */
+    background: rgba(4,4,10,0.9);
+  }
+  .name-overlay[hidden] { display: none; }
+  .name-card {
+    background: #0c0c16; border: 2px solid var(--neon1);
+    box-shadow: 0 0 24px -4px var(--neon1), inset 0 0 22px rgba(0,0,0,0.6);
+    border-radius: 20px; padding: 40px 36px; max-width: 420px; width: 100%;
+    text-align: center; display: flex; flex-direction: column; gap: 22px;
+  }
+  .name-title {
+    font-family: var(--px); font-size: 16px; line-height: 1.7; letter-spacing: 1px;
+    color: #ffe9d6; text-shadow: 0 0 8px var(--neon1), 0 0 18px var(--neon2);
+  }
+  .name-sub { color: var(--muted); font-size: 13px; margin-top: -10px; }
+  .name-input {
+    font-family: var(--px); font-size: 22px; text-align: center; letter-spacing: 4px;
+    color: var(--neon1); background: #06060c; border: 1px solid #ff7a2c66;
+    border-radius: 10px; padding: 20px 14px; min-height: 64px; box-sizing: border-box;
+    text-transform: uppercase; outline: none;
+  }
+  .name-input:focus { border-color: var(--neon1); box-shadow: 0 0 12px -3px var(--neon1); }
+  .name-save {
+    font-family: var(--px); font-size: 15px; letter-spacing: 1.5px; cursor: pointer;
+    color: var(--neon2); background: transparent; border: 1px solid var(--neon2);
+    border-radius: 10px; padding: 18px; min-height: 56px; box-sizing: border-box;
+    text-shadow: 0 0 8px var(--neon2);
+    transition: color 0.12s, box-shadow 0.12s;
+  }
+  .name-save:hover { color: #fff; box-shadow: 0 0 16px -2px var(--neon2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="marquee">
+    <h1>SORKIN ARCADE</h1>
+    <div class="rule"></div>
+  </header>
+
+  <div class="player-bar" id="playerBar" hidden>
+    <button type="button" id="changeName" title="Change player">
+      WHO'S PLAYING:&nbsp;<span class="pname" id="playerName"></span>
+    </button>
+  </div>
+
+  <div class="select-label">— SELECT GAME —</div>
+  <ol class="games" id="games"></ol>
+
+  <div class="scores-link"><a href="/scores">★ HIGH SCORES ★</a></div>
+
+  <div class="select-label creators-label">— CREATORS —</div>
+  <section class="reel" id="reel"></section>
+  <section class="reel reel-ai" id="reelAI"></section>
+
+  <div class="coin">‹ INSERT COIN ›</div>
+
+  <div class="foot"><a href="https://motisorkin.com">↩ motisorkin.com</a></div>
+</div>
+
+<!-- Name picker: shown on first arrival, and again via "CHANGE NAME". -->
+<div class="name-overlay" id="nameOverlay" hidden>
+  <form class="name-card" id="nameForm">
+    <div class="name-title" id="nameTitle">WHO'S<br />PLAYING?</div>
+    <div class="name-sub">This name follows you across every game.</div>
+    <input class="name-input" id="nameInput" maxlength="12" placeholder="AAA"
+           autocomplete="off" spellcheck="false" aria-label="Your player name" />
+    <button class="name-save" type="submit" id="nameSave">START</button>
+  </form>
+</div>
+
+<script>
+  const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Anthropic mark — a coral sunburst.
+  function claudeStar() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'star');
+    svg.setAttribute('aria-label', 'Made with Claude');
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 - Math.PI / 2, o = (i % 2 === 0) ? 10 : 7.5;
+      const ln = document.createElementNS(ns, 'line');
+      ln.setAttribute('x1', (12 + Math.cos(a) * 1.6).toFixed(2));
+      ln.setAttribute('y1', (12 + Math.sin(a) * 1.6).toFixed(2));
+      ln.setAttribute('x2', (12 + Math.cos(a) * o).toFixed(2));
+      ln.setAttribute('y2', (12 + Math.sin(a) * o).toFixed(2));
+      svg.appendChild(ln);
+    }
+    return svg;
+  }
+
+  // Grok mark — xAI's angular "X" monogram.
+  function grokMark(color) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', 'g-icon grok');
+    svg.setAttribute('aria-label', 'Grok by xAI');
+    if (color) svg.style.setProperty('--gc', color);
+    const p = document.createElementNS(ns, 'path');
+    // official xAI / X angular monogram
+    p.setAttribute('d', 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z');
+    svg.appendChild(p);
+    return svg;
+  }
+
+  // Grok — a round, slick disc badge with the angular slash glyph (for the
+  // CREATORS reel; distinct from the small game-row grokMark).
+  function grokRoundLogo() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 48 48');
+    svg.setAttribute('class', 'grok-round');
+    svg.setAttribute('aria-label', 'Grok');
+    const defs = document.createElementNS(ns, 'defs');
+    const grad = document.createElementNS(ns, 'radialGradient');
+    grad.setAttribute('id', 'grokDisc');
+    grad.setAttribute('cx', '34%'); grad.setAttribute('cy', '26%'); grad.setAttribute('r', '85%');
+    [['0%', '#33333d'], ['55%', '#15151b'], ['100%', '#050507']].forEach(([o, c]) => {
+      const s = document.createElementNS(ns, 'stop');
+      s.setAttribute('offset', o); s.setAttribute('stop-color', c); grad.appendChild(s);
+    });
+    defs.appendChild(grad); svg.appendChild(defs);
+    const circle = document.createElementNS(ns, 'circle');
+    circle.setAttribute('cx', '24'); circle.setAttribute('cy', '24'); circle.setAttribute('r', '22');
+    circle.setAttribute('fill', 'url(#grokDisc)');
+    circle.setAttribute('stroke', 'rgba(255,255,255,0.22)'); circle.setAttribute('stroke-width', '1');
+    svg.appendChild(circle);
+    const p = document.createElementNS(ns, 'path');
+    // official xAI / X angular monogram, centered in the disc
+    p.setAttribute('d', 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z');
+    p.setAttribute('transform', 'translate(13.5 13.5) scale(0.875)');
+    p.setAttribute('fill', '#f4f4f6');
+    svg.appendChild(p);
+    return svg;
+  }
+
+  // A borderless CREATORS card for an AI builder (Claude / Grok): a slick logo
+  // over a soft glow, name beneath — no frame box.
+  function aiCreatorCard(id, b) {
+    const card = document.createElement('div');
+    card.className = 'char ai';
+    card.style.setProperty('--c', b.color || '#8a8a9a');
+    const logo = document.createElement('div');
+    logo.className = 'logo';
+    logo.appendChild(id === 'grok' ? grokRoundLogo() : claudeStar());
+    const who = document.createElement('div');
+    who.className = 'who'; who.textContent = b.name || id;
+    card.appendChild(logo); card.appendChild(who);
+    return card;
+  }
+
+  // A participant chip for an AI builder (Claude / Grok) — small brand icon.
+  function aiIcon(id, b) {
+    const ic = id === 'grok' ? grokMark(b.color) : claudeStar();
+    ic.classList.add('g-icon');
+    ic.setAttribute('title', b.name);
+    return ic;
+  }
+
+  fetch('games.json', { cache: 'no-cache' })
+    .then((r) => r.json())
+    .then((data) => {
+      const builders = data.builders || {};
+      buildReel(data, builders);
+      buildGames(data, builders);
+      wireKeyboard();
+    })
+    .catch((e) => { console.error(e); });
+
+  // ---- player identity: "who's playing?" — once per browser session ----
+  // Stored via the shared HighScores store (sessionStorage 'arcade.player'),
+  // so it carries into every game page this visit but is asked fresh next
+  // time. The previous answer (localStorage) only prefills the box. The bar
+  // at the top is the mid-session switch — kids swap chairs, tap, retype.
+  (function () {
+    const HS = window.HighScores;
+    const bar = document.getElementById('playerBar');
+    const nameEl = document.getElementById('playerName');
+    const overlay = document.getElementById('nameOverlay');
+    const form = document.getElementById('nameForm');
+    const input = document.getElementById('nameInput');
+    const title = document.getElementById('nameTitle');
+    if (!HS || !HS.player) return;
+
+    function renderBar() {
+      const name = HS.player();
+      if (name) { nameEl.textContent = name; bar.hidden = false; }
+      else { bar.hidden = true; }
+    }
+
+    function openPicker(isChange) {
+      title.innerHTML = isChange ? 'CHANGE<br />PLAYER' : "WHO'S<br />PLAYING?";
+      // Change → current name; first visit → last visit's answer as a prefill.
+      input.value = isChange ? HS.player() : (HS.lastPlayer ? HS.lastPlayer() : '');
+      overlay.hidden = false;
+      setTimeout(() => { try { input.focus(); input.select(); } catch (e) {} }, 0);
+    }
+
+    input.addEventListener('input', () => {
+      input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const typed = input.value.replace(/[^A-Z0-9]/g, '');
+      // Empty submit on first visit: keep asking (no identity yet). On "change",
+      // an empty box just cancels back to the existing name.
+      if (!typed) { if (HS.player()) { overlay.hidden = true; } else { input.focus(); } return; }
+      HS.setPlayer(typed);
+      // A picked name supersedes any earlier "skip" from a game page.
+      try { sessionStorage.removeItem('arcade.player.skip'); } catch (e) {}
+      overlay.hidden = true;
+      renderBar();
+    });
+    document.getElementById('changeName').addEventListener('click', () => openPicker(true));
+
+    renderBar();
+    if (!HS.player()) openPicker(false);   // first visit → ask
+  })();
+
+  // ---- character reel: each player cycles through their `faces` images;
+  //      empty -> pixel-sprite placeholder. ----
+  function buildReel(data, builders) {
+    const reel = document.getElementById('reel');
+    const reelAI = document.getElementById('reelAI');
+    const ids = data.reel || Object.keys(builders);
+    for (const id of ids) {
+      const b = builders[id]; if (!b) continue;
+      // Claude / Grok render as borderless slick logos on their own row.
+      if (id === 'claude' || id === 'grok') { if (reelAI) reelAI.appendChild(aiCreatorCard(id, b)); continue; }
+      const card = document.createElement('div');
+      card.className = 'char';
+      card.style.setProperty('--c', b.color || '#8a8a9a');
+
+      const frame = document.createElement('div');
+      frame.className = 'frame';
+      const faces = Array.isArray(b.faces) ? b.faces : [];
+      if (faces.length) {
+        const img = document.createElement('img');
+        img.src = faces[0].src || faces[0];
+        img.alt = b.name;
+        frame.appendChild(img);
+        const cap = document.createElement('div');
+        cap.className = 'cap';
+        cap.textContent = faces[0].as ? ('as ' + faces[0].as) : '';
+        frame.appendChild(cap);
+        if (faces.length > 1 && !REDUCED) cycleFaces(img, cap, faces, b);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'ph';
+        ph.textContent = b.mark || (b.name || '?')[0];
+        frame.appendChild(ph);
+      }
+
+      const who = document.createElement('div');
+      who.className = 'who'; who.textContent = b.name || id;
+
+      card.appendChild(frame);
+      card.appendChild(who);
+      reel.appendChild(card);
+    }
+  }
+
+  function cycleFaces(img, cap, faces, b) {
+    let i = 0;
+    setInterval(() => {
+      i = (i + 1) % faces.length;
+      const f = faces[i];
+      img.style.opacity = '0';
+      setTimeout(() => {
+        img.src = f.src || f;
+        cap.textContent = f.as ? ('as ' + f.as) : '';
+        img.style.opacity = '1';
+      }, 180);
+    }, 2600);
+    img.style.transition = 'opacity 0.18s';
+  }
+
+  // ---- game select list ----
+  function buildGames(data, builders) {
+    const ol = document.getElementById('games');
+    (data.games || []).forEach((g, idx) => {
+      const li = document.createElement('li');
+      if (idx === 0) li.classList.add('active');
+      const a = document.createElement('a');
+      a.href = g.url;
+      a.style.setProperty('--ac', g.accent || '#ff7a2c');
+
+      const num = document.createElement('div');
+      num.className = 'g-num';
+      num.textContent = String(idx + 1).padStart(2, '0');
+
+      const main = document.createElement('div');
+      main.className = 'g-main';
+      const title = document.createElement('div');
+      title.className = 'g-title'; title.textContent = g.title;
+      const meta = document.createElement('div');
+      meta.className = 'g-meta'; meta.textContent = (g.tags || []).join('  ·  ');
+      main.appendChild(title); main.appendChild(meta);
+
+      const right = document.createElement('div');
+      right.className = 'g-right';
+      const ids = g.builders || [];
+      for (const id of ids) {
+        const b = builders[id]; if (!b) continue;
+        if (id === 'claude' || id === 'grok') {
+          // AI players show their actual icon, smaller — not a name-box.
+          right.appendChild(aiIcon(id, b));
+        } else {
+          const badge = document.createElement('span');
+          badge.className = 'badge';
+          badge.style.setProperty('--bc', b.color || '#8a8a9a');
+          badge.textContent = b.name;
+          right.appendChild(badge);
+        }
+      }
+      // "Made with Claude" star — only when Claude isn't already shown as a player.
+      if (g.madeWithClaude && !ids.includes('claude')) right.appendChild(claudeStar());
+
+      a.appendChild(num); a.appendChild(main); a.appendChild(right);
+      li.appendChild(a);
+      a.addEventListener('mouseenter', () => setActive(idx));
+      ol.appendChild(li);
+    });
+  }
+
+  // ---- high-score boards (per scored game, read from localStorage) ----
+  function setActive(idx) {
+    const items = document.querySelectorAll('ol.games li');
+    items.forEach((li, i) => li.classList.toggle('active', i === idx));
+  }
+
+  // Coin-op feel: arrow keys move the selector, Enter launches.
+  function wireKeyboard() {
+    const items = Array.from(document.querySelectorAll('ol.games li'));
+    if (!items.length) return;
+    let i = 0;
+    window.addEventListener('keydown', (e) => {
+      // Never steal keys from a text field (e.g. the name picker) — Enter
+      // there must submit the form, not launch the highlighted game.
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { i = (i + 1) % items.length; setActive(i); e.preventDefault(); }
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { i = (i - 1 + items.length) % items.length; setActive(i); e.preventDefault(); }
+      else if (e.key === 'Enter' || e.key === ' ') { const a = items[i].querySelector('a'); if (a) location.href = a.href; }
+    });
+  }
+</script>
+</body>
+</html>

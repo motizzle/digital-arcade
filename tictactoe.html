@@ -1,0 +1,2341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Clauck Tac Toe</title>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" />
+<link rel="apple-touch-icon" href="https://motisorkin.com/apple-touch-icon.png" />
+<meta property="og:site_name" content="Moti Sorkin" />
+<meta property="og:title" content="Clauck Tac Toe — Moti Sorkin" />
+<style>
+/* ============================================================================
+   Fractal Game Shell — shared chrome.
+   Theme, header, control bar, and the 3-layer canvas stack. Game-agnostic:
+   nothing here knows about pong, checkers, or any specific board.
+   ========================================================================== */
+:root {
+  --bg: #0a0a14; --bg2: #14141f;
+  --fg: #e8e8f0; --muted: #888;
+  --accent: #ff7a2c; --accent2: #2cb1ff;
+  --line: #303045;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  width: 100%;
+  height: 100dvh; max-height: 100dvh;
+  background: radial-gradient(ellipse at 50% -20%, #1a1a2e 0%, var(--bg) 60%);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  position: fixed;
+  inset: 0;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Buttons/links/inputs still get normal taps under a locked stage. */
+a, button, input, textarea, select, label {
+  touch-action: manipulation;
+}
+/* Shell root: column flex so the play area shrinks to whatever chrome is left. */
+#app {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 0;
+}
+
+/* Back-to-arcade link (top-left). Same host serves the hub at "/". */
+.arcade-back {
+  position: fixed; top: 14px; left: 14px; z-index: 60;
+  font-size: 13px; line-height: 1; text-decoration: none;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
+  padding: 8px 14px; background: rgba(20, 20, 31, 0.7);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  transition: color 120ms, border-color 120ms;
+}
+.arcade-back:hover { color: var(--fg); border-color: #6c8cff; }
+
+header {
+  flex-shrink: 0;
+  padding: 12px 20px 2px;
+  text-align: center;
+}
+header h1 {
+  margin: 0; font-weight: 300; font-size: clamp(22px, 3.4vw, 32px); letter-spacing: 0.04em;
+  background: linear-gradient(90deg, #ff7a2c, #ff3ca6, #2cb1ff);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sub { color: var(--muted); font-size: 13px; margin-top: 4px; letter-spacing: 0.06em; }
+
+main {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 0 16px 8px;
+  overflow: hidden;
+}
+
+#controls {
+  flex-shrink: 0;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center;
+  margin: 8px 0; padding: 8px 12px;
+  background: rgba(20, 20, 31, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+}
+#controls button {
+  background: linear-gradient(180deg, #2a2a3f, #1a1a2a);
+  color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 14px; font-size: 14px; cursor: pointer; font-family: inherit;
+  transition: border-color 0.12s, color 0.12s;
+}
+#controls button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Segmented mode switch (1 Player / 2 Players / …). */
+.seg {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 8px;
+}
+.seg button {
+  background: transparent; border: none; color: var(--muted);
+  padding: 6px 14px; font-size: 13px; cursor: pointer; border-radius: 6px;
+  font-family: inherit; letter-spacing: 0.03em;
+}
+.seg button.active {
+  background: linear-gradient(180deg, #2a2a3f, #1a1a2a);
+  color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent);
+}
+#controls button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.seg button:hover:not(.active) { color: var(--fg); }
+
+/* The stage holds the editable name bar + the canvas. It grows/shrinks so the
+   board always fits the visible viewport (no page scroll). */
+.stage {
+  --aspect: 1.6;
+  --stage-max: 1200px;
+  flex: 1; min-height: 0;
+  width: 100%;
+  max-width: min(96vw, var(--stage-max));
+  margin: 0 auto;
+  display: flex; flex-direction: column; align-items: center;
+}
+
+/* Editable player-name bar above the board. */
+#playerNames {
+  flex-shrink: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; margin-bottom: 6px;
+  width: 100%;
+}
+#playerNames input {
+  flex: 0 1 46%; min-width: 0;
+  background: rgba(20, 20, 31, 0.6);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 12px;
+  font-family: inherit; font-size: 15px; font-weight: 300; letter-spacing: 0.02em;
+  color: var(--fg); outline: none;
+}
+#playerNames input.right { text-align: right; }
+#playerNames input:focus { box-shadow: inset 0 0 0 1px currentColor; }
+/* Defaults ("Computer", "Player 2", …) show as dimmed placeholders in the
+   seat's team color; anything typed renders at full strength. */
+#playerNames input::placeholder { color: currentColor; opacity: 0.55; }
+
+/* Underline-only name fields (no boxed border). */
+#playerNames.name-underline input {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid currentColor;
+  padding: 4px 2px 6px;
+}
+#playerNames.name-underline input:focus {
+  box-shadow: none;
+  border-bottom-width: 2px;
+}
+
+#canvasWrap {
+  position: relative;
+  flex: 1; min-height: 0;
+  aspect-ratio: var(--aspect);
+  width: min(100%, calc(100% * var(--aspect)));
+  max-width: min(96vw, var(--stage-max));
+  max-height: 100%;
+  height: auto;
+  border-radius: 12px;
+  overflow: hidden;
+  /* Lighter, clearly visible border so the play-area edges read against the
+     dark page. Inset highlight crisps the inner boundary; the colored glow
+     stays for ambiance. */
+  border: 1.5px solid rgba(190, 200, 230, 0.55);
+  box-shadow: 0 0 60px rgba(255, 122, 44, 0.08), 0 0 100px rgba(44, 177, 255, 0.06),
+              inset 0 0 0 1px rgba(190, 200, 230, 0.12);
+  background: #04040a;
+  touch-action: none;
+}
+#bgCanvas, #glCanvas, #uiCanvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+}
+#bgCanvas { z-index: 0; }
+#glCanvas { z-index: 1; }
+#uiCanvas { z-index: 2; pointer-events: auto; }
+
+/* Fullscreen toggle — lives in #controls next to New Game / Theme. */
+#controls .fs-btn {
+  padding: 8px 12px;
+  font-size: 16px; line-height: 1;
+  min-width: 42px;
+}
+
+/* Native fullscreen: the wrap becomes the whole screen — drop the aspect lock,
+   rounded corners and border so the court fills the display edge to edge. */
+#canvasWrap:fullscreen,
+#canvasWrap:-webkit-full-screen {
+  width: 100vw; height: 100vh; max-width: none;
+  aspect-ratio: auto; border-radius: 0; border: none;
+}
+/* iOS Safari has no element fullscreen — a CSS class covers the viewport. */
+#canvasWrap.pseudo-fs {
+  position: fixed; inset: 0; z-index: 9000;
+  width: 100vw; height: 100dvh; max-width: none;
+  aspect-ratio: auto; border-radius: 0; border: none;
+}
+
+.hint {
+  flex-shrink: 0;
+  color: var(--muted); font-size: 11px; margin-top: 4px; letter-spacing: 0.04em; text-align: center;
+}
+
+/* ---- High-score initials prompt (shown over the play area on game end) ---- */
+.hs-overlay {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  /* No backdrop-filter here: under software compositing (the kiosk) the
+     backdrop re-blurs on every typing repaint, lagging the very input this
+     dialog exists for. The dark wash carries the dimming on its own. */
+  background: rgba(4, 4, 10, 0.78);
+}
+/* Sized for comfortable touch entry on a kiosk/tablet — kids shouldn't have
+   to hit a tiny target. Matched by index.html's .name-card (same padding/
+   radius/input-and-button scale) so the arcade-wide name picker and this
+   end-of-game prompt read as the same kind of dialog. */
+.hs-card {
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  padding: 36px 40px; border-radius: 20px;
+  min-width: 300px; max-width: 90vw;
+  background: rgba(16, 16, 26, 0.94); border: 1px solid rgba(190, 200, 230, 0.35);
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.55);
+  font-family: -apple-system, system-ui, sans-serif; text-align: center;
+}
+.hs-title { font-size: 18px; letter-spacing: 0.22em; color: #ffd07a; font-weight: 600; }
+.hs-score { font-size: 42px; font-weight: 300; color: #e8e8f0; letter-spacing: 0.04em; }
+.hs-form { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.hs-initials {
+  width: 5.5em; text-align: center; text-transform: uppercase;
+  font-size: 40px; letter-spacing: 0.28em; font-weight: 600;
+  padding: 14px 12px; min-height: 64px; box-sizing: border-box;
+  color: #fff; background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(190, 200, 230, 0.4); border-radius: 12px; outline: none;
+}
+.hs-initials::placeholder { color: rgba(232, 232, 240, 0.35); }
+.hs-initials:focus { border-color: #ffd07a; box-shadow: inset 0 0 0 1px #ffd07a; }
+/* Full-name variant (12 chars) — used when an arcade identity is in play and
+   by the "who's playing?" prompt. Wider, slightly smaller type so a whole
+   name fits without scrolling inside the field. */
+.hs-initials.hs-name {
+  width: 10em; max-width: 76vw;
+  font-size: 28px; letter-spacing: 0.12em;
+}
+.hs-save {
+  font-family: inherit; font-size: 20px; font-weight: 600; cursor: pointer;
+  color: #06060c; background: linear-gradient(180deg, #ffd07a, #ff9d2c);
+  border: none; border-radius: 12px; padding: 16px 28px; min-height: 56px; box-sizing: border-box;
+}
+.hs-skip {
+  background: none; border: none; color: var(--muted); font-family: inherit;
+  font-size: 15px; cursor: pointer; text-decoration: underline; padding: 8px;
+}
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ============================================================================
+   Arcade High Scores
+   ----------------------------------------------------------------------------
+   A tiny, DOM-agnostic high-score store shared by the hub and every game.
+
+   Two layers, both pure-ish and unit-tested (see highscores.test.js):
+     - ranking logic   : qualifies() / rankInsert() / sortTrim()  (no I/O)
+     - persistence      : load() / save() / submit() / top()       (Storage)
+
+   Scores live in localStorage under `arcade.hs.<gameId>` as a JSON array of
+   { name, score, ts }. `order` is 'desc' (higher is better, default) or 'asc'
+   (lower is better). The board is capped to MAX (top ten — classic arcade).
+
+   Runs in the browser (window.HighScores) and Node (module.exports) so the
+   ranking logic can be tested without a DOM. Storage is injectable, so tests
+   pass an in-memory stub instead of localStorage.
+   ========================================================================== */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.HighScores = factory();
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  const MAX = 10;                 // top ten
+  const PREFIX = 'arcade.hs.';
+  const PLAYER_KEY = 'arcade.player';        // the identity picked this session
+  const LAST_PLAYER_KEY = 'arcade.player.last';  // previous answer, prompt prefill only
+
+  function cmp(order) {
+    // Sort so the BEST score is first. 'asc' => smaller is better.
+    return (order === 'asc') ? (a, b) => a - b : (a, b) => b - a;
+  }
+
+  // Sort a list best-first and trim to `max`. Ties broken by earliest ts
+  // (the older record keeps the higher rank — first to get there wins).
+  function sortTrim(list, order, max) {
+    if (max == null) max = MAX;
+    const c = cmp(order);
+    const out = (list || []).slice().sort(
+      (a, b) => c(a.score, b.score) || ((a.ts || 0) - (b.ts || 0))
+    );
+    return out.slice(0, max);
+  }
+
+  // Would `score` earn a spot on the board?
+  function qualifies(list, score, order, max) {
+    order = order || 'desc';
+    if (max == null) max = MAX;
+    if (typeof score !== 'number' || !isFinite(score)) return false;
+    const board = sortTrim(list, order, max);
+    if (board.length < max) return true;
+    const worst = board[board.length - 1];
+    return (order === 'asc') ? (score < worst.score) : (score > worst.score);
+  }
+
+  // Insert `entry` and re-rank. Returns { list, rank }; rank is the 0-based
+  // position of `entry` on the trimmed board, or -1 if it didn't make it.
+  function rankInsert(list, entry, order, max) {
+    order = order || 'desc';
+    if (max == null) max = MAX;
+    const merged = sortTrim((list || []).concat([entry]), order, max);
+    return { list: merged, rank: merged.indexOf(entry) };
+  }
+
+  // ---- persistence ---------------------------------------------------------
+  function defaultStorage() {
+    try { if (typeof localStorage !== 'undefined') return localStorage; } catch (e) {}
+    return null;
+  }
+  function key(gameId) { return PREFIX + gameId; }
+
+  function load(gameId, storage) {
+    storage = storage || defaultStorage();
+    if (!storage) return [];
+    try {
+      const raw = storage.getItem(key(gameId));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr)
+        ? arr.filter((e) => e && typeof e.score === 'number' && isFinite(e.score))
+        : [];
+    } catch (e) { return []; }
+  }
+
+  function save(gameId, list, storage) {
+    storage = storage || defaultStorage();
+    if (!storage) return;
+    try { storage.setItem(key(gameId), JSON.stringify(list)); } catch (e) {}
+  }
+
+  // Normalize a name to the arcade shape: A–Z0–9, capped to maxLen (default 3,
+  // the classic initials length; win-tally boards pass a longer maxLen so real
+  // player names like MOTI / ADA survive).
+  function sanitizeName(name, maxLen) {
+    if (maxLen == null) maxLen = 3;
+    const s = String(name == null ? '' : name).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, maxLen);
+    return s || 'AAA';
+  }
+
+  function now() { try { return Date.now(); } catch (e) { return 0; } }
+
+  // Record a score. Returns { list, rank, entry } — rank -1 means off the board
+  // (still saved to nothing; the caller usually checks qualifies() first).
+  function submit(gameId, name, score, opts) {
+    opts = opts || {};
+    const order = opts.order || 'desc';
+    const max = (opts.max == null) ? MAX : opts.max;
+    const storage = opts.storage;
+    const ts = (opts.ts == null) ? now() : opts.ts;
+    const entry = { name: sanitizeName(name, opts.maxLen), score: score, ts: ts };
+    const { list, rank } = rankInsert(load(gameId, storage), entry, order, max);
+    save(gameId, list, storage);
+    return { list: list, rank: rank, entry: entry };
+  }
+
+  // Cumulative tally: add `delta` (default 1) to the named player's running
+  // total for a game, keyed by name (one row per player). Used by win-based
+  // games (tic-tac-toe, Connect 4) where the "high score" is total wins.
+  function bump(gameId, name, delta, opts) {
+    opts = opts || {};
+    const storage = opts.storage;
+    const order = opts.order || 'desc';
+    const max = (opts.max == null) ? MAX : opts.max;
+    const inc = (delta == null) ? 1 : delta;
+    const nm = sanitizeName(name, opts.maxLen == null ? 12 : opts.maxLen);
+    const list = load(gameId, storage);
+    let entry = null;
+    for (let i = 0; i < list.length; i++) { if (list[i].name === nm) { entry = list[i]; break; } }
+    if (entry) entry.score += inc;
+    else list.push({ name: nm, score: inc, ts: (opts.ts == null ? now() : opts.ts) });
+    const trimmed = sortTrim(list, order, max);
+    save(gameId, trimmed, storage);
+    return trimmed;
+  }
+
+  // ---- shared player identity ----------------------------------------------
+  // "Who's playing?" is asked once per browser SESSION. The answer lives in
+  // sessionStorage: it survives navigating between the hub and the games
+  // (same-tab page loads share it) but a fresh visit asks again — kids swap
+  // chairs between visits. The most recent answer is also kept in
+  // localStorage, purely as a prompt prefill, never as an identity.
+  function defaultSession() {
+    try { if (typeof sessionStorage !== 'undefined') return sessionStorage; } catch (e) {}
+    return null;
+  }
+
+  function readName(storage, k) {
+    if (!storage) return '';
+    try {
+      const raw = storage.getItem(k);
+      if (!raw) return '';                       // unset — don't fabricate 'AAA'
+      return String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    } catch (e) { return ''; }
+  }
+
+  function player(storage) {
+    return readName(storage || defaultSession(), PLAYER_KEY);
+  }
+
+  // The previous session's name — offered as a prefill in name prompts.
+  function lastPlayer(storage) {
+    return readName(storage || defaultStorage(), LAST_PLAYER_KEY);
+  }
+
+  function setPlayer(name, storage) {
+    storage = storage || defaultSession();
+    const nm = sanitizeName(name, 12);
+    if (storage) { try { storage.setItem(PLAYER_KEY, nm); } catch (e) {} }
+    const last = defaultStorage();
+    if (last) { try { last.setItem(LAST_PLAYER_KEY, nm); } catch (e) {} }
+    return nm;
+  }
+
+  function top(gameId, n, opts) {
+    opts = opts || {};
+    const board = sortTrim(load(gameId, opts.storage), opts.order || 'desc', opts.max || MAX);
+    return (n != null) ? board.slice(0, n) : board;
+  }
+
+  function clear(gameId, storage) {
+    storage = storage || defaultStorage();
+    if (storage) { try { storage.removeItem(key(gameId)); } catch (e) {} }
+  }
+
+  return {
+    MAX, PREFIX, PLAYER_KEY, LAST_PLAYER_KEY,
+    cmp, sortTrim, qualifies, rankInsert, sanitizeName,
+    key, load, save, submit, bump, top, clear,
+    player, setPlayer, lastPlayer,
+  };
+});
+
+</script>
+<script>
+/* ============================================================================
+   Fractal Game Shell
+   ----------------------------------------------------------------------------
+   A reusable engine for games whose "pieces" are fractal-textured 3D spheres
+   (Mandelbrot / Julia / Newton). Lifted from the Fractal Checkers engine.
+
+   The shell owns everything generic:
+     - the 3-layer canvas stack (bg 2D / WebGL spheres / ui 2D)
+     - DOM chrome (header, control bar, mode switch, theme switch)
+     - the WebGL fractal-sphere renderer (verbatim shader from checkers)
+     - DPR / resize, reduced-motion handling, the animation loop
+     - input plumbing (pointer + keyboard) forwarded to the game
+     - favicon bake
+
+   A GAME is a plain object implementing the interface documented in README.md:
+     id, title, subtitle?, aspect?, modes[], controls[],
+     reset(shell), resize(shell,w,h), update(shell,dt),
+     drawBackground(shell,ctx,w,h), drawForeground(shell,ctx,w,h),
+     spheres()  -> [{x,y,r,tint,look,seed,hover,zoom,frozen,capture}],
+     onPointerMove/Down/Up(shell,x,y), onKeyDown/Up(shell,e)
+
+   The game works entirely in CSS pixels. The shell handles DPR scaling and the
+   WebGL y-flip when it uploads spheres to the GPU.
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  // ---- Fractal type / coloring / trap / palette enums (verbatim, checkers:362) -
+  const F_JULIA = 0, F_NEWTON3 = 1, F_NEWTON4 = 2, F_BURNINGSHIP = 3,
+        F_MANDELBROT = 4, F_PHOENIX = 5, F_NOVA = 6;
+  const C_ESCAPE = 0, C_TRAP = 1, C_TRAP_ESCAPE = 2, C_DE_GLOW = 3,
+        C_NORMAL_3D = 4, C_NEWTON_BAS = 5, C_BANDS = 6, C_PICKOVER = 7;
+  const T_POINT = 0, T_CIRCLE = 1, T_PICKOVER = 2;
+  const PAL_WARM = 0, PAL_COOL = 1, PAL_ACID = 2;
+
+  const MAX_DPR = 2;
+  const FORCED_SSAA = 1;
+  // Pixel budget for the fractal (WebGL) layer. Its shader cost is per-pixel
+  // (up to 320 iterations each, ×4 with SSAA), so the backing store is capped
+  // at ~720p and CSS-scaled up: fullscreen on a large display renders the
+  // spheres at the same cost as a windowed board instead of shading 2–8M
+  // pixels a frame (which made fullscreen unplayably slow). The 2D bg/ui
+  // layers keep full DPR so text and lines stay crisp (until lowPerf latches —
+  // then every layer shares the capped scale).
+  const GL_MAX_PIXELS = 1280 * 720;
+  // Don't cap a board that's only slightly over budget: a fractional
+  // downscale forces the compositor to RESAMPLE the layer every frame
+  // (expensive under software compositing — the kiosk) for almost no shader
+  // savings. Serpent's 96vmin board on a 1080p screen is 1.17× budget; the
+  // first cut of this cap resampled it every frame and made the game SLOWER
+  // windowed than before the cap existed.
+  const GL_BUDGET_TOLERANCE = 1.35;
+  const MAX_PIECES = 64;        // shell supports many spheres (checkers); pong uses 1
+
+  // ---- Built-in fractal "looks" a game can choose per sphere (checkers:382) ----
+  // A game references these by key (e.g. sphere.look = 'bands').
+  const PRESETS = {
+    // Mandelbrot, banded coloring — flowing concentric bands.
+    bands: {
+      fractal: F_MANDELBROT, coloring: C_BANDS, palette: PAL_COOL,
+      p: { zoomCx: -0.745, zoomCy: 0.113, zoomScale: 0.012, trapScale: 4.0, maxIter: 320 },
+    },
+    // Julia, Pickover-stalk coloring — luminous filaments on a tinted glow.
+    stalks: {
+      fractal: F_JULIA, coloring: C_PICKOVER, palette: PAL_ACID,
+      p: { jCx: -0.4, jCy: 0.6, trapShape: T_PICKOVER, trapScale: 5.0, viewScale: 0.55, maxIter: 180 },
+    },
+    // Newton/Nova basins — kaleidoscopic root-coloring.
+    nova: {
+      fractal: F_NOVA, coloring: C_NEWTON_BAS, palette: PAL_ACID,
+      p: { maxIter: 64, relax: 1.0 },
+    },
+  };
+
+  const THEME_NAMES = ['Fire / Ice', 'Acid / Violet'];
+
+  // ---- Shaders (verbatim from checkers.html:1256-1768) -------------------------
+  const VERT_SRC = `
+attribute vec2 aPos;
+varying vec2 vUv;
+void main() {
+  vUv = (aPos + 1.0) * 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`;
+
+  const FRAG_SRC = `
+#extension GL_OES_standard_derivatives : enable
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+  precision highp float;
+#else
+  precision mediump float;
+#endif
+
+varying vec2 vUv;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform int uPieceCount;
+uniform vec4 uPiecesA[${MAX_PIECES}];
+uniform vec4 uPiecesB[${MAX_PIECES}];
+uniform float uPieceFrozen[${MAX_PIECES}];
+uniform float uPieceSeedId[${MAX_PIECES}];
+
+uniform int uFractalType;
+uniform int uColoring;
+uniform int uPalette;
+uniform float uMaxIter;
+uniform vec2 uJuliaC;
+uniform vec2 uZoomCenter;
+uniform float uZoomScale;
+uniform int uTrapShape;
+uniform vec2 uTrapPos;
+uniform float uTrapScale;
+uniform float uTrapRadius;
+uniform float uRelax;
+uniform int uSSAA;
+uniform float uViewScale;
+uniform int uTheme;
+
+const float BAILOUT2 = 65536.0;
+const int  MAX_ITER_HARD = 320;
+
+vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+  return a + b * cos(6.2831853 * (c * t + d));
+}
+vec3 paletteWarm(float t) { return palette(t, vec3(0.55,0.42,0.30), vec3(0.40,0.38,0.30), vec3(1.00,1.00,0.55), vec3(0.0,0.20,0.50)); }
+vec3 paletteCool(float t) { return palette(t, vec3(0.50,0.50,0.50), vec3(0.50,0.50,0.50), vec3(1.00,1.00,1.00), vec3(0.0,0.33,0.67)); }
+vec3 paletteAcid(float t) { return palette(t, vec3(0.50,0.50,0.50), vec3(0.45,0.40,0.42), vec3(1.40,0.80,0.20), vec3(0.50,0.20,0.25)); }
+
+vec3 teamPalette(float t, float playerTint) {
+  vec3 a, b, c, d;
+  if (uTheme == 0) {
+    if (playerTint > 0.0) {
+      a = vec3(0.55, 0.08, 0.05); b = vec3(1.00, 0.40, 0.05);
+      c = vec3(1.00, 0.85, 0.20); d = vec3(1.00, 0.65, 0.45);
+    } else {
+      a = vec3(0.02, 0.12, 0.45); b = vec3(0.10, 0.55, 1.00);
+      c = vec3(0.20, 0.92, 1.00); d = vec3(0.50, 0.30, 1.00);
+    }
+  } else if (uTheme == 1) {
+    if (playerTint > 0.0) {
+      a = vec3(0.05, 0.30, 0.08); b = vec3(0.20, 0.85, 0.20);
+      c = vec3(0.85, 1.00, 0.15); d = vec3(0.40, 1.00, 0.05);
+    } else {
+      a = vec3(0.20, 0.05, 0.45); b = vec3(0.70, 0.10, 1.00);
+      c = vec3(1.00, 0.20, 0.85); d = vec3(1.00, 0.55, 0.85);
+    }
+  }
+  t = fract(t); float s = t * 4.0;
+  int idx = int(floor(s)); float f = smoothstep(0.0, 1.0, fract(s));
+  vec3 k0, k1;
+  if (idx == 0)      { k0 = a; k1 = b; }
+  else if (idx == 1) { k0 = b; k1 = c; }
+  else if (idx == 2) { k0 = c; k1 = d; }
+  else               { k0 = d; k1 = a; }
+  return mix(k0, k1, f);
+}
+
+float hash11(float p) {
+  p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p);
+}
+float ign(vec2 px) {
+  return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715))));
+}
+
+vec2 cMul(vec2 a, vec2 b) { return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+vec2 cDiv(vec2 a, vec2 b) {
+  float d = dot(b, b);
+  return vec2(a.x*b.x + a.y*b.y, a.y*b.x - a.x*b.y) / max(d, 1e-12);
+}
+vec2 cSqr(vec2 z) { return vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y); }
+
+vec3 pickPalette(float t) {
+  if (uPalette == ${PAL_WARM}) return paletteWarm(t);
+  if (uPalette == ${PAL_COOL}) return paletteCool(t);
+  return paletteAcid(t);
+}
+
+void updateTrap(inout float trapMin, inout vec2 trapPos, vec2 z, float seedT, float pieceTime) {
+  if (uTrapShape == ${T_POINT}) {
+    float d = dot(z - uTrapPos, z - uTrapPos);
+    if (d < trapMin) { trapMin = d; trapPos = z; }
+  } else if (uTrapShape == ${T_CIRCLE}) {
+    float d = abs(length(z - uTrapPos) - uTrapRadius);
+    if (d*d < trapMin) { trapMin = d*d; trapPos = z; }
+  } else if (uTrapShape == ${T_PICKOVER}) {
+    float dirSign = (seedT > 0.5) ? 1.0 : -1.0;
+    float ang = pieceTime * 0.55 * dirSign + 0.32 * sin(pieceTime * 0.137) + seedT * 6.2832;
+    float ca = cos(ang), sa = sin(ang);
+    vec2 driftCenter = vec2(
+      0.15 * sin(pieceTime * 0.073 + seedT * 6.28),
+      0.15 * cos(pieceTime * 0.061 + seedT * 4.71)
+    );
+    vec2 zs = z - driftCenter;
+    vec2 zr = vec2(zs.x * ca + zs.y * sa, -zs.x * sa + zs.y * ca);
+    float d = min(abs(zr.x), abs(zr.y));
+    if (d*d < trapMin) { trapMin = d*d; trapPos = z; }
+  }
+}
+
+vec3 newtonRootColor(int rootIdx) {
+  float t;
+  if (uFractalType == ${F_NEWTON3} || uFractalType == ${F_NOVA}) {
+    if (rootIdx == 0)      t = 0.05;
+    else if (rootIdx == 1) t = 0.40;
+    else                   t = 0.75;
+  } else {
+    if (rootIdx == 0)      t = 0.05;
+    else if (rootIdx == 1) t = 0.30;
+    else if (rootIdx == 2) t = 0.55;
+    else                   t = 0.80;
+  }
+  return pickPalette(t);
+}
+
+struct NewtonResult { int rootIdx; float iters; float distLast; vec2 z; };
+NewtonResult iterateNewton(vec2 z0, float seedT, float pieceTime) {
+  vec2 z = z0;
+  int rootIdx = -1;
+  int N = int(uMaxIter);
+  if (N > MAX_ITER_HARD) N = MAX_ITER_HARD;
+  int iters = 0;
+  float distLast = 1.0;
+  float relax = uRelax + 0.07 * sin(pieceTime * 0.7 + seedT * 6.28);
+  vec2 lissajousCenter = vec2(
+    0.10 * sin(pieceTime * 0.029 + seedT * 6.28),
+    0.08 * cos(pieceTime * 0.041 + seedT * 4.71)
+  );
+  vec2 novaC = (uFractalType == ${F_NOVA})
+    ? lissajousCenter + vec2(
+        0.30 * cos(pieceTime * 0.200 + seedT * 6.28) + 0.12 * cos(pieceTime * 0.117),
+        0.30 * sin(pieceTime * 0.231 + seedT * 6.28) + 0.12 * sin(pieceTime * 0.151)
+      )
+    : vec2(0.0);
+  for (int j = 0; j < MAX_ITER_HARD; j++) {
+    if (j >= N) break;
+    vec2 prev = z;
+    if (uFractalType == ${F_NEWTON3} || uFractalType == ${F_NOVA}) {
+      vec2 z2 = cSqr(z);
+      vec2 z3 = cMul(z2, z);
+      vec2 num = z3 - vec2(1.0, 0.0);
+      vec2 den = 3.0 * z2;
+      z = z - relax * cDiv(num, den) + novaC;
+    } else {
+      vec2 z2 = cSqr(z);
+      vec2 z4 = cSqr(z2);
+      vec2 num = z4 - vec2(1.0, 0.0);
+      vec2 den = 4.0 * cMul(z2, z);
+      z = z - relax * cDiv(num, den);
+    }
+    float d = length(z - prev);
+    distLast = d;
+    iters = j + 1;
+    if (d < 1e-4) break;
+  }
+  if (uFractalType == ${F_NOVA}) {
+    float ang = atan(z.y, z.x);
+    if (ang < 0.0) ang += 6.2831853;
+    ang = mod(ang + 1.0471975, 6.2831853);
+    rootIdx = int(floor(ang / 2.0943951));
+    if (rootIdx > 2) rootIdx = 2;
+  } else {
+    vec2 roots3[3];
+    roots3[0] = vec2(1.0, 0.0);
+    roots3[1] = vec2(-0.5,  0.8660254);
+    roots3[2] = vec2(-0.5, -0.8660254);
+    vec2 roots4[4];
+    roots4[0] = vec2(1.0, 0.0);
+    roots4[1] = vec2(0.0, 1.0);
+    roots4[2] = vec2(-1.0, 0.0);
+    roots4[3] = vec2(0.0, -1.0);
+    float bestD = 1e10;
+    if (uFractalType == ${F_NEWTON3}) {
+      for (int k = 0; k < 3; k++) {
+        float dd = length(z - roots3[k]);
+        if (dd < bestD) { bestD = dd; rootIdx = k; }
+      }
+    } else {
+      for (int k = 0; k < 4; k++) {
+        float dd = length(z - roots4[k]);
+        if (dd < bestD) { bestD = dd; rootIdx = k; }
+      }
+    }
+  }
+  return NewtonResult(rootIdx, float(iters), distLast, z);
+}
+
+struct EscapeResult { vec2 z; vec2 dz; float smoothIter; bool escaped; float trapMin; vec2 trapPos; };
+EscapeResult iterateEscape(vec2 z0, vec2 c0, float seedT, float pieceTime) {
+  vec2 z = z0;
+  vec2 dz = vec2(1.0, 0.0);
+  float m2 = dot(z, z);
+  float smoothIter = uMaxIter;
+  float trapMin = 1e10;
+  vec2 trapPos = vec2(0.0);
+  bool escaped = false;
+  int N = int(uMaxIter);
+  if (N > MAX_ITER_HARD) N = MAX_ITER_HARD;
+  for (int j = 0; j < MAX_ITER_HARD; j++) {
+    if (j >= N) break;
+    if (uFractalType == ${F_JULIA} || uFractalType == ${F_MANDELBROT}) {
+      dz = 2.0 * cMul(z, dz);
+      if (uFractalType == ${F_MANDELBROT}) dz += vec2(1.0, 0.0);
+    }
+    if (uFractalType == ${F_JULIA}) {
+      z = cSqr(z) + c0;
+    } else if (uFractalType == ${F_MANDELBROT}) {
+      z = cSqr(z) + c0;
+    }
+    m2 = dot(z, z);
+    updateTrap(trapMin, trapPos, z, seedT, pieceTime);
+    if (m2 > BAILOUT2) {
+      smoothIter = float(j) - log2(log2(m2)) + 4.0;
+      escaped = true;
+      break;
+    }
+  }
+  return EscapeResult(z, dz, smoothIter, escaped, trapMin, trapPos);
+}
+
+vec4 shadeAt(vec2 fc) {
+  vec3 coreCol = vec3(0.0);
+  float coreAlpha = 0.0;
+
+  for (int i = 0; i < ${MAX_PIECES}; i++) {
+    if (i >= uPieceCount) break;
+    vec4 A = uPiecesA[i];
+    vec4 B = uPiecesB[i];
+    vec2 cPos = A.xy;
+    float r = A.z;
+    float playerTint = B.x;
+    float hover = B.y;
+    float zoom = B.z;
+    float capture = B.w;
+
+    float dist = length(fc - cPos);
+    if (dist > r) continue;
+
+    float seed = hash11(uPieceSeedId[i] + 0.137);
+    vec2 sphereLocal = (fc - cPos) / r;
+
+    float r2 = dot(sphereLocal, sphereLocal);
+    float sphereZ = sqrt(max(1.0 - r2, 1e-4));
+    vec2 local = sphereLocal / max(0.5 + 0.5 * sphereZ, 0.01);
+
+    float frozen = uPieceFrozen[i];
+    float pieceTime = mix(uTime, seed * 100.0, frozen);
+    float effTime = pieceTime;
+
+    float spinDir = (seed > 0.5) ? 1.0 : -1.0;
+    float pieceAng = seed * 6.2832 + effTime * (0.04 + 0.06 * seed) * spinDir;
+    float pCa = cos(pieceAng), pSa = sin(pieceAng);
+    local = vec2(local.x * pCa - local.y * pSa, local.x * pSa + local.y * pCa);
+
+    vec2 z0, c0;
+    float seedB = fract(seed * 17.137 + 0.31);
+    float pertAng = seedB * 6.2832;
+    vec2 pert = vec2(cos(pertAng), sin(pertAng));
+
+    if (uFractalType == ${F_JULIA}) {
+      z0 = local * uViewScale * (1.55 / max(zoom, 0.4));
+      if (hover > 0.5) {
+        float n = max(dot(z0, z0), 0.0008);
+        z0 = vec2(z0.x, -z0.y) / n;
+      }
+      int jIdx = int(floor(seed * 8.0));
+      vec2 cBase;
+      if (jIdx == 0)      cBase = vec2(-0.700,  0.270);
+      else if (jIdx == 1) cBase = vec2(-0.400,  0.600);
+      else if (jIdx == 2) cBase = vec2( 0.285,  0.010);
+      else if (jIdx == 3) cBase = vec2(-0.835, -0.2321);
+      else if (jIdx == 4) cBase = vec2( 0.355,  0.355);
+      else if (jIdx == 5) cBase = vec2(-0.512,  0.521);
+      else if (jIdx == 6) cBase = vec2( 0.420, -0.220);
+      else                cBase = vec2(-1.135,  0.260);
+      c0 = cBase + 0.050 * pert;
+    } else if (uFractalType == ${F_MANDELBROT}) {
+      z0 = vec2(0.0);
+      int mIdx = int(floor(seed * 8.0));
+      vec2 mCenter; float mScale;
+      if (mIdx == 0)      { mCenter = vec2(-0.50,    0.00);    mScale = 1.40;  }
+      else if (mIdx == 1) { mCenter = vec2(-0.745,   0.113);   mScale = 0.055; }
+      else if (mIdx == 2) { mCenter = vec2( 0.282,   0.012);   mScale = 0.060; }
+      else if (mIdx == 3) { mCenter = vec2(-1.40,    0.0);     mScale = 0.32;  }
+      else if (mIdx == 4) { mCenter = vec2(-0.16,    1.04);    mScale = 0.32;  }
+      else if (mIdx == 5) { mCenter = vec2(-0.7269,  0.1889);  mScale = 0.045; }
+      else if (mIdx == 6) { mCenter = vec2(-0.0805,  0.6650);  mScale = 0.080; }
+      else                { mCenter = vec2(-1.249,   0.04);    mScale = 0.110; }
+      mCenter += pert * mScale * 0.50;
+      vec2 zoomedLocal = local * (1.0 / max(zoom, 0.4));
+      c0 = mCenter + zoomedLocal * mScale;
+    } else {
+      z0 = local * uViewScale * (1.6 / max(zoom, 0.4));
+      c0 = vec2(0.0);
+    }
+
+    vec3 col = vec3(0.0);
+    if (uFractalType == ${F_NEWTON3} || uFractalType == ${F_NEWTON4} || uFractalType == ${F_NOVA}) {
+      NewtonResult R = iterateNewton(z0, seed, pieceTime);
+      vec3 root = newtonRootColor(R.rootIdx);
+      col = root;
+      float boundary = smoothstep(0.55, 0.85, R.iters / uMaxIter);
+      col = mix(col, vec3(0.02), boundary * 0.85);
+    } else {
+      EscapeResult E = iterateEscape(z0, c0, seed, pieceTime);
+      if (uColoring == ${C_BANDS}) {
+        float pieceShift = seed * 0.80;
+        if (!E.escaped) {
+          float interT = fract(0.35 + 0.12 * E.z.x + 0.08 * E.z.y
+                              + effTime * 0.04 + pieceShift);
+          col = teamPalette(interT, playerTint) * 0.90;
+        } else {
+          float bandFreq = max(uTrapScale, 0.5);
+          float dirSign  = (seed > 0.5) ? 1.0 : -1.0;
+          float modIter  = (E.smoothIter + effTime * 2.0 * dirSign + seed * 10.0) / bandFreq;
+          float phase    = fract(modIter);
+          float fw       = max(fwidth(modIter), 0.005);
+          float band     = smoothstep(0.5 - fw, 0.5 + fw, phase);
+          float bandIdx  = floor(modIter);
+          float drift   = effTime * 0.013 + bandIdx * 0.20 + pieceShift;
+          vec3 c1 = teamPalette(fract(drift),         playerTint);
+          vec3 c2 = teamPalette(fract(drift + 0.50),  playerTint);
+          col = mix(c1, c2, band);
+        }
+      } else if (uColoring == ${C_PICKOVER}) {
+        float t = clamp(sqrt(E.trapMin) * uTrapScale, 0.0, 1.0);
+        float fw = max(fwidth(t), 0.005);
+        float stalk = smoothstep(0.14 - fw, 0.14 + fw, t);
+        float pieceShift = seed * 0.85;
+        float colorT = fract(E.smoothIter * 0.045 + effTime * 0.05 + pieceShift);
+        vec3 stalkCol = teamPalette(colorT, playerTint);
+        vec3 bg      = teamPalette(fract(colorT + 0.55), playerTint) * 0.20;
+        col = mix(stalkCol, bg, stalk);
+      } else {
+        float t = clamp(E.smoothIter / uMaxIter, 0.0, 1.0);
+        col = pickPalette(t);
+      }
+    }
+
+    vec3 normal = vec3(sphereLocal.x, sphereLocal.y, sphereZ);
+    vec3 lightDir = normalize(vec3(-0.35, 0.55, 0.85));
+    vec3 viewDir  = vec3(0.0, 0.0, 1.0);
+    vec3 halfVec  = normalize(lightDir + viewDir);
+
+    float diffuse  = max(dot(normal, lightDir), 0.0);
+    float specular = pow(max(dot(normal, halfVec), 0.0), 26.0);
+    float rim = pow(1.0 - sphereZ, 2.5);
+
+    vec3 teamSig = teamPalette(0.0, playerTint);
+
+    col *= 0.30 + 0.70 * diffuse;
+    col = max(col, teamSig * 0.12);
+
+    if (capture > 0.0) {
+      float pulse = 0.5 + 0.5 * sin(capture * 22.0);
+      col = mix(col, vec3(1.0, 0.92, 0.75), capture * 0.7 * pulse);
+    }
+
+    col += specular * mix(teamSig, vec3(1.0), 0.75) * 0.65;
+
+    float rimMix = rim * (0.45 + 0.65 * diffuse);
+    col += rimMix * teamSig * 1.30;
+
+    float discFw = max(fwidth(dist), 0.5);
+
+    coreCol = col;
+    coreAlpha = 1.0 - smoothstep(r - discFw, r + discFw, dist);
+  }
+
+  return vec4(coreCol, coreAlpha);
+}
+
+void main() {
+  vec2 fc = vUv * uResolution;
+  vec4 col;
+  if (uSSAA == 1) {
+    vec2 d = vec2(0.25);
+    col = (shadeAt(fc + vec2(-d.x, -d.y))
+         + shadeAt(fc + vec2( d.x, -d.y))
+         + shadeAt(fc + vec2(-d.x,  d.y))
+         + shadeAt(fc + vec2( d.x,  d.y))) * 0.25;
+  } else if (uSSAA == 2) {
+    col = vec4(0.0);
+    for (int dy = -1; dy <= 1; dy++) {
+      for (int dx = -1; dx <= 1; dx++) {
+        vec2 off = vec2(float(dx), float(dy)) * (1.0/3.0);
+        col += shadeAt(fc + off);
+      }
+    }
+    col /= 9.0;
+  } else {
+    col = shadeAt(fc);
+  }
+  vec3 rgb = col.rgb + (ign(gl_FragCoord.xy) - 0.5) / 255.0;
+  gl_FragColor = vec4(rgb * col.a, col.a);
+}
+`;
+
+  // ===========================================================================
+  // FractalShell
+  // ===========================================================================
+  class FractalShell {
+    constructor() {
+      this.size = { w: 0, h: 0 };
+      this.dpr = 1;
+      this.glScale = 1;          // backing-store scale of the GL layer (≤ dpr; see GL_MAX_PIXELS)
+      this.theme = 0;
+      this.mode = null;
+      this.time = 0;
+      this.reducedMotion = false;
+      this.lowPerf = false;      // latched by _trackFrameTime() once frame time is sustained-high
+      this._frameMsAvg = null;
+      this._slowFrames = 0;
+      this._bakePending = true;
+      this._bakeSphere = null;
+      this._raf = null;
+      this._startTime = null;
+      this._lastTime = null;
+    }
+
+    // ---- public helpers a game can call --------------------------------------
+    newGame() { if (this.game.reset) this.game.reset(this); }
+    setMode(id) {
+      if (this.mode === id) return;
+      this.mode = id;
+      this._refreshControls();
+      this.newGame();
+    }
+    nextTheme() { this.theme = (this.theme + 1) % THEME_NAMES.length; this._refreshControls(); }
+    requestBake(sphere) { this._bakePending = true; this._bakeSphere = sphere || null; }
+    refreshControls() { this._refreshControls(); }
+
+    // ---- mount ---------------------------------------------------------------
+    mount(game, root) {
+      this.game = game;
+      this.mode = (game.modes && game.modes.length) ? game.modes[0].id : null;
+      this.reducedMotion = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (window.matchMedia) {
+        window.matchMedia('(prefers-reduced-motion: reduce)')
+          .addEventListener('change', (e) => { this.reducedMotion = e.matches; });
+      }
+
+      this._buildDOM(root, game);
+      this._initGL();
+      this._wireInput();
+      // Keep the stage fixed on phones: block page pan/rubber-band outside
+      // form fields (high-score initials etc. still need normal touch).
+      document.addEventListener('touchmove', (e) => {
+        const t = e.target;
+        if (t && t.closest && t.closest('input, textarea, select, button, a, label')) return;
+        e.preventDefault();
+      }, { passive: false });
+      window.addEventListener('resize', () => this._scheduleResize());
+      // Device rotation: the viewport dimensions often report the OLD orientation
+      // at the instant 'orientationchange'/'resize' fires, so a single measure
+      // can size the canvas to the wrong (pre-rotation) box — the board then
+      // renders squished/off, worst of all in fullscreen. Re-measure over the
+      // next frames and once more after the relayout settles.
+      window.addEventListener('orientationchange', () => this._reflow());
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => this._scheduleResize());
+      }
+      document.addEventListener('fullscreenchange', () => this._onFsChange());
+      document.addEventListener('webkitfullscreenchange', () => this._onFsChange());
+      this._resize();
+      this.newGame();
+      this._refreshControls();      // labels can now reflect live game state
+
+      // No session identity yet (someone deep-linked into a game, or skipped
+      // the hub): ask who's playing, same card as the high-score prompt. The
+      // prompt opens after the first frame composites so it overlays a live
+      // board. A skip is remembered for the session — never re-ask per game.
+      const HS = window.HighScores;
+      if (HS && HS.player && HS.setPlayer && !HS.player() && !this._nameSkipped()) {
+        this._namePromptPending = true;
+      }
+
+      this._startTime = performance.now();
+      this._lastTime = this._startTime;
+      this._raf = requestAnimationFrame((t) => this._loop(t));
+    }
+
+    // ---- DOM -----------------------------------------------------------------
+    _buildDOM(root, game) {
+      root.innerHTML = '';
+
+      // Back-to-arcade link (top-left). Same host serves the hub at "/".
+      const back = document.createElement('a');
+      back.className = 'arcade-back';
+      back.href = '/';
+      back.textContent = '‹ Arcade';
+      root.appendChild(back);
+
+      const header = document.createElement('header');
+      const h1 = document.createElement('h1');
+      h1.textContent = game.title || 'Fractal Game';
+      header.appendChild(h1);
+      if (game.subtitle) {
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        sub.textContent = game.subtitle;
+        header.appendChild(sub);
+      }
+      root.appendChild(header);
+
+      const main = document.createElement('main');
+      const controls = document.createElement('div');
+      controls.id = 'controls';
+      this._controlsEl = controls;
+      main.appendChild(controls);
+
+      // Stage wraps the (optional) editable name bar + the canvas so they
+      // share one width and stay aligned.
+      const stage = document.createElement('div');
+      stage.className = 'stage';
+      stage.style.setProperty('--aspect', String(game.aspect || 1.6));
+      if (game.stageMax != null) {
+        stage.style.setProperty('--stage-max',
+          typeof game.stageMax === 'number' ? game.stageMax + 'px' : String(game.stageMax));
+      }
+      if (game.players && game.players.length) this._buildNames(stage, game);
+
+      const wrap = document.createElement('div');
+      wrap.id = 'canvasWrap';
+      this.wrap = wrap;
+      for (const id of ['bgCanvas', 'glCanvas', 'uiCanvas']) {
+        const c = document.createElement('canvas');
+        c.id = id;
+        wrap.appendChild(c);
+      }
+
+      stage.appendChild(wrap);
+      main.appendChild(stage);
+
+      if (game.hint) {
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = game.hint;
+        main.appendChild(hint);
+      }
+      root.appendChild(main);
+
+      this.glCanvas = wrap.querySelector('#glCanvas');
+      this.uiCanvas = wrap.querySelector('#uiCanvas');
+      this.bgCanvas = wrap.querySelector('#bgCanvas');
+      this.ui = this.uiCanvas.getContext('2d');
+      this.bg = this.bgCanvas.getContext('2d');
+
+      // Favicon link.
+      let link = document.getElementById('faviconLink');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        link.id = 'faviconLink';
+        document.head.appendChild(link);
+      }
+      this.faviconLink = link;
+
+      this._buildControls(game);
+    }
+
+    _buildControls(game) {
+      const c = this._controlsEl;
+      c.innerHTML = '';
+
+      const newBtn = document.createElement('button');
+      newBtn.textContent = 'New Game';
+      newBtn.onclick = () => this.newGame();
+      c.appendChild(newBtn);
+
+      // Mode switch.
+      if (game.modes && game.modes.length > 1) {
+        const seg = document.createElement('div');
+        seg.className = 'seg';
+        seg.dataset.role = 'modes';
+        for (const m of game.modes) {
+          const b = document.createElement('button');
+          b.textContent = m.label;
+          b.dataset.mode = m.id;
+          if (m.title) b.title = m.title;
+          b.onclick = () => this.setMode(m.id);
+          seg.appendChild(b);
+        }
+        c.appendChild(seg);
+      }
+
+      // Game-defined controls.
+      this._dynamicButtons = [];
+      if (game.controls) {
+        for (const ctl of game.controls) {
+          const b = document.createElement('button');
+          b.onclick = () => { ctl.onClick(this); this._refreshControls(); };
+          if (ctl.title) b.title = ctl.title;
+          b._ctl = ctl;
+          this._dynamicButtons.push(b);
+          c.appendChild(b);
+        }
+      }
+
+      // Theme switch.
+      const themeBtn = document.createElement('button');
+      themeBtn.dataset.role = 'theme';
+      themeBtn.onclick = () => this.nextTheme();
+      this._themeBtn = themeBtn;
+      c.appendChild(themeBtn);
+
+      // Fullscreen — in the control bar (not over the board). Canvas-wrap FS
+      // on web; iOS Safari falls back to a CSS cover on the play area.
+      const fsBtn = document.createElement('button');
+      fsBtn.type = 'button';
+      fsBtn.className = 'fs-btn';
+      fsBtn.textContent = '⛶';
+      fsBtn.title = 'Fullscreen';
+      fsBtn.setAttribute('aria-label', 'Toggle fullscreen');
+      fsBtn.addEventListener('click', (e) => { e.preventDefault(); this._toggleFullscreen(); });
+      c.appendChild(fsBtn);
+      this._fsBtn = fsBtn;
+
+      this._refreshControls();
+    }
+
+    _refreshControls() {
+      if (this._dynamicButtons) {
+        for (const b of this._dynamicButtons) {
+          const ctl = b._ctl;
+          const lbl = ctl.label;
+          b.textContent = (typeof lbl === 'function') ? lbl(this) : lbl;
+          if (ctl.active) b.classList.toggle('active', !!ctl.active(this));
+          else b.classList.remove('active');
+        }
+      }
+      if (this._themeBtn) this._themeBtn.textContent = 'Theme: ' + THEME_NAMES[this.theme];
+      const seg = this._controlsEl.querySelector('[data-role="modes"]');
+      if (seg) {
+        for (const b of seg.children) {
+          b.classList.toggle('active', b.dataset.mode === this.mode);
+        }
+      }
+      this._applyNameColors();
+    }
+
+    // ---- editable player names ----------------------------------------------
+    // A player's defaultName may be a static string or (shell) => string, so a
+    // game can label a seat by mode — e.g. the second seat is 'Computer' in 1P
+    // and 'Player 2' in 2P. Defaults render as PLACEHOLDERS (the value stays
+    // whatever a human typed), and playerName() falls back to the CURRENT
+    // default, so switching modes relabels any seat nobody has typed over.
+    _playerDefault(i) {
+      const p = (this.game.players || [])[i];
+      const d = p && p.defaultName;
+      const v = (typeof d === 'function') ? d(this) : d;
+      return v || ('Player ' + (i + 1));
+    }
+
+    _buildNames(stage, game) {
+      this.playerNames = game.players.map(() => '');
+      // Carry the arcade-wide identity into the first (human) player slot, so the
+      // name you picked at the arcade lasts across every game. Per-game edits stay
+      // local; the shared name is only changed from the hub or the name prompt.
+      const arcadeName = (window.HighScores && window.HighScores.player) ? window.HighScores.player() : '';
+      if (arcadeName) this.playerNames[0] = arcadeName;
+      const bar = document.createElement('div');
+      bar.id = 'playerNames';
+      if (game.nameStyle === 'underline') bar.classList.add('name-underline');
+      this._nameInputs = [];
+      const n = game.players.length;
+      game.players.forEach((p, i) => {
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = this.playerNames[i];
+        inp.placeholder = this._playerDefault(i);
+        inp.maxLength = p.maxLength || 16;
+        inp.spellcheck = false;
+        inp.autocomplete = 'off';
+        inp.setAttribute('aria-label', this._playerDefault(i) + ' name');
+        if (n === 2 && i === 1) inp.classList.add('right');   // right-align the 2nd of two
+        inp.addEventListener('input', () => { this.playerNames[i] = inp.value; });
+        this._nameInputs.push(inp);
+        bar.appendChild(inp);
+      });
+      stage.appendChild(bar);
+      this._applyNameColors();
+    }
+
+    _applyNameColors() {
+      if (!this._nameInputs) return;
+      const players = this.game.players || [];
+      this._nameInputs.forEach((inp, i) => {
+        const c = players[i] && players[i].color;
+        const col = (typeof c === 'function') ? c(this) : (c || '#e8e8f0');
+        inp.style.color = col;
+        inp.style.borderColor = (/^#[0-9a-f]{6}$/i.test(col)) ? col + '66' : col;
+        // Defaults can be mode-dependent — keep placeholder/label current.
+        inp.placeholder = this._playerDefault(i);
+        inp.setAttribute('aria-label', this._playerDefault(i) + ' name');
+      });
+    }
+
+    // Current display name for player i (falls back to the default if blank).
+    playerName(i) {
+      if (!this.playerNames) return 'Player ' + (i + 1);
+      const n = (this.playerNames[i] || '').trim();
+      return n || this._playerDefault(i);
+    }
+
+    // ---- WebGL ---------------------------------------------------------------
+    _compile(src, type) {
+      const gl = this.gl;
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error('Shader:', gl.getShaderInfoLog(s));
+        return null;
+      }
+      return s;
+    }
+
+    _initGL() {
+      const gl = this.glCanvas.getContext('webgl', {
+        alpha: true, premultipliedAlpha: true, antialias: true, preserveDrawingBuffer: true,
+      });
+      this.gl = gl;
+      if (!gl) { console.error('WebGL not available.'); return; }
+      gl.getExtension('OES_standard_derivatives');
+      const vs = this._compile(VERT_SRC, gl.VERTEX_SHADER);
+      const fs = this._compile(FRAG_SRC, gl.FRAGMENT_SHADER);
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        console.error('Link:', gl.getProgramInfoLog(prog)); return;
+      }
+      this.glProgram = prog;
+      gl.useProgram(prog);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
+      ]), gl.STATIC_DRAW);
+      const aPos = gl.getAttribLocation(prog, 'aPos');
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      this._aPos = aPos;
+      this._attribBuffer = buf;
+
+      const U = {};
+      for (const name of [
+        'uResolution', 'uTime', 'uPieceCount', 'uPiecesA', 'uPiecesB', 'uPieceFrozen', 'uPieceSeedId',
+        'uFractalType', 'uColoring', 'uPalette', 'uMaxIter',
+        'uJuliaC', 'uZoomCenter', 'uZoomScale',
+        'uTrapShape', 'uTrapPos', 'uTrapScale', 'uTrapRadius',
+        'uRelax', 'uSSAA', 'uViewScale', 'uTheme',
+      ]) U[name] = gl.getUniformLocation(prog, name);
+      this.U = U;
+
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    }
+
+    _setPreset(preset) {
+      const gl = this.gl, U = this.U, p = preset.p;
+      gl.uniform1i(U.uFractalType, preset.fractal);
+      gl.uniform1i(U.uColoring, preset.coloring);
+      gl.uniform1i(U.uPalette, preset.palette);
+      gl.uniform1f(U.uMaxIter, p.maxIter ?? 160);
+      gl.uniform2f(U.uJuliaC, p.jCx ?? 0, p.jCy ?? 0);
+      gl.uniform2f(U.uZoomCenter, p.zoomCx ?? 0, p.zoomCy ?? 0);
+      gl.uniform1f(U.uZoomScale, p.zoomScale ?? 1.5);
+      gl.uniform1i(U.uTrapShape, p.trapShape ?? 0);
+      gl.uniform2f(U.uTrapPos, p.trapPx ?? 0, p.trapPy ?? 0);
+      gl.uniform1f(U.uTrapScale, p.trapScale ?? 1.0);
+      gl.uniform1f(U.uTrapRadius, p.trapRadius ?? 0.5);
+      gl.uniform1f(U.uRelax, p.relax ?? 1.0);
+      gl.uniform1f(U.uViewScale, p.viewScale ?? 1.0);
+    }
+
+    // spheres in CSS px; this handles DPR scaling and the GL y-flip.
+    _uploadSpheres(spheres) {
+      const gl = this.gl, U = this.U;
+      const A = new Float32Array(MAX_PIECES * 4);
+      const B = new Float32Array(MAX_PIECES * 4);
+      const F = new Float32Array(MAX_PIECES);
+      const S = new Float32Array(MAX_PIECES);
+      const n = Math.min(spheres.length, MAX_PIECES);
+      const scale = this.glScale, H = this.size.h;   // GL layer's own backing scale, not dpr
+      for (let i = 0; i < n; i++) {
+        const s = spheres[i];
+        A[i * 4 + 0] = s.x * scale;
+        A[i * 4 + 1] = (H - s.y) * scale;     // GL origin bottom-left
+        A[i * 4 + 2] = s.r * scale;
+        A[i * 4 + 3] = 0.0;
+        // tint 0 -> first palette half (Fire/Acid), 1 -> second (Ice/Violet)
+        B[i * 4 + 0] = (s.tint ? -1.0 : 1.0);
+        B[i * 4 + 1] = s.hover ? 1.0 : 0.0;
+        B[i * 4 + 2] = s.zoom || 1.0;
+        B[i * 4 + 3] = s.capture || 0.0;
+        S[i] = (s.seed !== null && s.seed !== undefined) ? s.seed : i;
+        F[i] = (s.frozen || this.reducedMotion) ? 1.0 : 0.0;
+      }
+      gl.uniform1i(U.uPieceCount, n);
+      gl.uniform4fv(U.uPiecesA, A);
+      gl.uniform4fv(U.uPiecesB, B);
+      gl.uniform1fv(U.uPieceFrozen, F);
+      gl.uniform1fv(U.uPieceSeedId, S);
+    }
+
+    _renderGL(spheres, time) {
+      const gl = this.gl, U = this.U;
+      if (!gl || !this.glProgram) return;
+      gl.viewport(0, 0, this.glCanvas.width, this.glCanvas.height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(this.glProgram);
+      gl.uniform2f(U.uResolution, this.glCanvas.width, this.glCanvas.height);
+      gl.uniform1f(U.uTime, time);
+      // SSAA quadruples the per-pixel shader cost — skip it when the machine
+      // is sustained-slow, or when the layer is already CSS-upscaled (the
+      // upscale blur swallows any sub-pixel AA anyway).
+      gl.uniform1i(U.uSSAA, (this.lowPerf || this.glScale < this.dpr) ? 0 : FORCED_SSAA);
+      gl.uniform1i(U.uTheme, this.theme);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this._attribBuffer);
+      gl.enableVertexAttribArray(this._aPos);
+      gl.vertexAttribPointer(this._aPos, 2, gl.FLOAT, false, 0, 0);
+
+      // Group spheres by look so each fractal preset is set once.
+      const groups = {};
+      for (const s of spheres) {
+        const look = (s.look && PRESETS[s.look]) ? s.look : 'stalks';
+        (groups[look] || (groups[look] = [])).push(s);
+      }
+      for (const look in groups) {
+        this._setPreset(PRESETS[look]);
+        this._uploadSpheres(groups[look]);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
+    }
+
+    // Coalesce burst resize events (mobile URL bar, visualViewport) to one
+    // measure per frame — redundant canvas dimension writes read as jumpy.
+    _scheduleResize() {
+      if (this._resizeRaf) return;
+      this._resizeRaf = requestAnimationFrame(() => {
+        this._resizeRaf = 0;
+        this._resize();
+      });
+    }
+
+    // ---- resize --------------------------------------------------------------
+    _resize() {
+      // In fullscreen the wrap IS the whole screen, but during the fullscreen
+      // transition (and right after a rotation into landscape) the wrap's
+      // getBoundingClientRect() frequently still reports the PRE-fullscreen box.
+      // Sizing the canvas to that stale, small rect while CSS stretches it to
+      // fill the screen is exactly what reads as "too zoomed in" in landscape
+      // fullscreen. When fullscreen, measure the real visible viewport instead
+      // so the court is drawn at the size it's actually displayed at.
+      let w, h;
+      if (this._isFullscreen()) {
+        const vv = window.visualViewport;
+        w = Math.round(window.innerWidth || (vv && vv.width) || 0);
+        h = Math.round(window.innerHeight || (vv && vv.height) || 0);
+      }
+      if (!w || !h) {
+        const rect = this.wrap.getBoundingClientRect();
+        w = rect.width; h = rect.height;
+      }
+      const rect = { width: w, height: h };
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      // GL layer renders at a capped internal resolution and CSS-scales up —
+      // but only when MEANINGFULLY over budget (see GL_BUDGET_TOLERANCE), so
+      // boards near 1:1 keep the compositor on the cheap no-resample path.
+      // Once lowPerf latches, the budget halves and the 2D layers join the
+      // capped scale: backing pixels are the biggest lever on a machine that
+      // is demonstrably struggling, and soft text beats a slideshow.
+      const cssPx = Math.max(1, rect.width * rect.height);
+      const budget = this.lowPerf ? GL_MAX_PIXELS * 0.55 : GL_MAX_PIXELS;
+      const glScale = (cssPx * dpr * dpr <= budget * GL_BUDGET_TOLERANCE)
+        ? dpr
+        : Math.min(dpr, Math.sqrt(budget / cssPx));
+      const uiScale = this.lowPerf ? glScale : dpr;
+      const wR = Math.round(rect.width);
+      const hR = Math.round(rect.height);
+      const sig = wR + '|' + hR + '|' + glScale + '|' + uiScale;
+      if (this._resizeSig === sig) return;
+      this._resizeSig = sig;
+      this.size.w = rect.width;
+      this.size.h = rect.height;
+      this.dpr = dpr;
+      this.glScale = glScale;
+      for (const c of [this.glCanvas, this.uiCanvas, this.bgCanvas]) {
+        const s = (c === this.glCanvas) ? glScale : uiScale;
+        c.width = Math.round(rect.width * s);
+        c.height = Math.round(rect.height * s);
+        c.style.width = rect.width + 'px';
+        c.style.height = rect.height + 'px';
+      }
+      this.ui.setTransform(uiScale, 0, 0, uiScale, 0, 0);
+      this.bg.setTransform(uiScale, 0, 0, uiScale, 0, 0);
+      if (this.game.resize) this.game.resize(this, rect.width, rect.height);
+    }
+
+    // Re-measure across the next frames and after the rotation relayout settles,
+    // so a stale (pre-rotation) viewport size can't stick.
+    _reflow() {
+      this._resize();
+      requestAnimationFrame(() => this._resize());
+      setTimeout(() => this._resize(), 300);
+    }
+
+    // ---- fullscreen ----------------------------------------------------------
+    _fsElement() {
+      return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+    _isFullscreen() {
+      return this._fsElement() === this.wrap || this.wrap.classList.contains('pseudo-fs');
+    }
+    _toggleFullscreen() {
+      const el = this.wrap;
+      if (this._isFullscreen()) {
+        if (el.classList.contains('pseudo-fs')) { el.classList.remove('pseudo-fs'); this._onFsChange(); }
+        else if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        return;
+      }
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) {
+        // Some browsers reject (e.g. iframe perms) — fall back to the CSS cover.
+        Promise.resolve(req.call(el)).catch(() => { el.classList.add('pseudo-fs'); this._onFsChange(); });
+      } else {
+        el.classList.add('pseudo-fs'); this._onFsChange();      // iOS Safari path
+      }
+    }
+    _onFsChange() {
+      const on = this._isFullscreen();
+      if (this._fsBtn) {
+        this._fsBtn.textContent = on ? '⤡' : '⛶';
+        this._fsBtn.title = on ? 'Exit fullscreen' : 'Fullscreen';
+      }
+      // Layout has changed. On mobile the new (fullscreen) viewport size can
+      // land a few frames late, so re-measure now, next frame, and once more
+      // after the transition settles — otherwise a stale size sticks and the
+      // court renders zoomed.
+      this._reflow();
+    }
+
+    // ---- high scores ---------------------------------------------------------
+    // A game calls this once when a round ends with a numeric score. If it earns
+    // a spot on the top-ten board (HighScores), prompt for initials and persist.
+    // gameId defaults to game.id; order defaults to game.scoreOrder or 'desc'.
+    recordScore(score, opts) {
+      opts = opts || {};
+      const HS = window.HighScores;
+      if (!HS || this._hsOpen) return;
+      const gameId = opts.gameId || (this.game && this.game.id);
+      const order = opts.order || (this.game && this.game.scoreOrder) || 'desc';
+      if (!gameId || typeof score !== 'number' || !isFinite(score)) return;
+      if (!HS.qualifies(HS.load(gameId), score, order)) return;
+      this._promptInitials(gameId, score, order, opts.label);
+    }
+
+    // A win-based game (tic-tac-toe, Connect 4) calls this once per win. It adds
+    // a win to that player's running tally on the shared board — no prompt, the
+    // player's name is already known. No-ops if HighScores isn't loaded.
+    reportWin(info) {
+      info = info || {};
+      const HS = window.HighScores;
+      if (!HS || !HS.bump) return;
+      const gameId = info.game || (this.game && this.game.id);
+      const name = info.player || (this.playerName ? this.playerName(0) : '');
+      if (!gameId || !name) return;
+      HS.bump(gameId, name, 1, { order: 'desc', maxLen: 12 });
+    }
+
+    // ---- "who's playing?" (per browser session) ------------------------------
+    _nameSkipped() {
+      try { return sessionStorage.getItem('arcade.player.skip') === '1'; } catch (e) { return false; }
+    }
+    _markNameSkipped() {
+      try { sessionStorage.setItem('arcade.player.skip', '1'); } catch (e) {}
+    }
+
+    _promptName() {
+      const HS = window.HighScores;
+      if (this._nameOpen || this._hsOpen) return;
+      this._nameOpen = true;
+
+      const ov = document.createElement('div');
+      ov.className = 'hs-overlay';
+      // Swallow taps so the game's canvas doesn't serve/reset underneath us.
+      ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click'].forEach(
+        (ev) => ov.addEventListener(ev, (e) => e.stopPropagation()));
+
+      const card = document.createElement('div');
+      card.className = 'hs-card';
+
+      const title = document.createElement('div');
+      title.className = 'hs-title';
+      title.textContent = "WHO'S PLAYING?";
+
+      const form = document.createElement('form');
+      form.className = 'hs-form';
+      const inp = document.createElement('input');
+      inp.className = 'hs-initials hs-name';
+      inp.maxLength = 12;
+      inp.placeholder = 'YOUR NAME';
+      inp.value = (HS.lastPlayer ? HS.lastPlayer() : '');   // last visit's answer, editable
+      inp.autocomplete = 'off'; inp.spellcheck = false;
+      inp.setAttribute('aria-label', 'Your name');
+      inp.addEventListener('input', () => {
+        inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+      });
+      const save = document.createElement('button');
+      save.type = 'submit'; save.className = 'hs-save'; save.textContent = 'PLAY';
+      form.appendChild(inp); form.appendChild(save);
+
+      const skip = document.createElement('button');
+      skip.type = 'button'; skip.className = 'hs-skip'; skip.textContent = 'skip';
+
+      const close = (commit) => {
+        if (!this._nameOpen) return;
+        if (commit && inp.value) {
+          const nm = HS.setPlayer(inp.value);
+          if (this.playerNames) this.playerNames[0] = nm;
+          if (this._nameInputs && this._nameInputs[0]) this._nameInputs[0].value = nm;
+        } else {
+          this._markNameSkipped();
+        }
+        this._nameOpen = false;
+        ov.remove();
+      };
+      form.addEventListener('submit', (e) => { e.preventDefault(); close(true); });
+      skip.addEventListener('click', () => close(false));
+
+      card.appendChild(title); card.appendChild(form); card.appendChild(skip);
+      ov.appendChild(card);
+      this.wrap.appendChild(ov);
+      setTimeout(() => { try { inp.focus(); inp.select(); } catch (e) {} }, 0);
+    }
+
+    _promptInitials(gameId, score, order, label) {
+      const HS = window.HighScores;
+      this._hsOpen = true;
+
+      const ov = document.createElement('div');
+      ov.className = 'hs-overlay';
+      // Swallow taps so the game's canvas doesn't rematch/reset underneath us.
+      ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click'].forEach(
+        (ev) => ov.addEventListener(ev, (e) => e.stopPropagation()));
+
+      const card = document.createElement('div');
+      card.className = 'hs-card';
+
+      const title = document.createElement('div');
+      title.className = 'hs-title';
+      title.textContent = 'NEW HIGH SCORE';
+
+      const sc = document.createElement('div');
+      sc.className = 'hs-score';
+      sc.textContent = (label ? label + ' ' : '') + score;
+
+      const form = document.createElement('form');
+      form.className = 'hs-form';
+      const inp = document.createElement('input');
+      inp.className = 'hs-initials';
+      // Prefill with the current player: prefer the name typed above the board
+      // THIS game (kids swap chairs mid-session), then the session identity.
+      // Still editable; with no name at all, fall back to 3-char initials.
+      let pre = this.playerNames ? (this.playerNames[0] || '').trim() : '';
+      pre = (pre || (HS.player ? HS.player() : '') || '')
+        .toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+      const maxLen = pre ? 12 : 3;
+      if (pre) inp.classList.add('hs-name');
+      inp.maxLength = maxLen; inp.placeholder = pre || 'AAA';
+      inp.value = pre;
+      inp.autocomplete = 'off'; inp.spellcheck = false;
+      inp.setAttribute('aria-label', pre ? 'Your name' : 'Enter your initials');
+      inp.addEventListener('input', () => {
+        inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, maxLen);
+      });
+      const save = document.createElement('button');
+      save.type = 'submit'; save.className = 'hs-save'; save.textContent = 'SAVE';
+      form.appendChild(inp); form.appendChild(save);
+
+      const skip = document.createElement('button');
+      skip.type = 'button'; skip.className = 'hs-skip'; skip.textContent = 'skip';
+
+      const close = (commit) => {
+        if (this._hsOpen === false) return;
+        if (commit) HS.submit(gameId, inp.value || pre || 'AAA', score, { order, maxLen });
+        this._hsOpen = false;
+        ov.remove();
+      };
+      form.addEventListener('submit', (e) => { e.preventDefault(); close(true); });
+      skip.addEventListener('click', () => close(false));
+
+      card.appendChild(title); card.appendChild(sc);
+      card.appendChild(form); card.appendChild(skip);
+      ov.appendChild(card);
+      this.wrap.appendChild(ov);
+      setTimeout(() => { try { inp.focus(); inp.select(); } catch (e) {} }, 0);
+    }
+
+    // ---- input ---------------------------------------------------------------
+    _pointerPos(e) {
+      const rect = this.wrap.getBoundingClientRect();
+      const t = (e.touches && e.touches[0]) || e;
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    }
+    _wireInput() {
+      const g = this.game;
+      const move = (e) => { if (g.onPointerMove) { const p = this._pointerPos(e); g.onPointerMove(this, p.x, p.y); } };
+      const down = (e) => { if (g.onPointerDown) { const p = this._pointerPos(e); g.onPointerDown(this, p.x, p.y); } };
+      const up = (e) => { if (g.onPointerUp) { const p = this._pointerPos(e); g.onPointerUp(this, p.x, p.y); } };
+      this.uiCanvas.addEventListener('pointermove', move);
+      // Touch is handled by touchstart below; skipping pointerdown for touch avoids
+      // a duplicate down() on the same tap (which could rematch before END_LOCK).
+      this.uiCanvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') return; down(e); });
+      this.uiCanvas.addEventListener('pointerup', up);
+      this.uiCanvas.addEventListener('pointercancel', up);
+      this.uiCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); down(e); }, { passive: false });
+      this.uiCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); move(e); }, { passive: false });
+      this.uiCanvas.addEventListener('touchend', up);
+      this.uiCanvas.addEventListener('touchcancel', up);
+      // Key PRESSES never reach the game while typing OR while a shell dialog
+      // is up — otherwise Space during the high-score prompt serves/resets the
+      // frozen game underneath it. Key RELEASES always pass: they only clear
+      // held-key flags, and swallowing one leaves a paddle drifting forever.
+      window.addEventListener('keydown', (e) => {
+        if (this._isTyping(e) || this._hsOpen || this._nameOpen) return;
+        if (g.onKeyDown) g.onKeyDown(this, e);
+      });
+      window.addEventListener('keyup', (e) => { if (g.onKeyUp) g.onKeyUp(this, e); });
+    }
+    _isTyping(e) {
+      const t = e.target;
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    }
+
+    // ---- loop ----------------------------------------------------------------
+    // Rolling average of real (unclamped) frame time. Games that draw a lot of
+    // per-frame Canvas2D work (large/many gradients, shadowBlur) can check
+    // `shell.lowPerf` and shed the expensive extras once the machine is
+    // sustained-slow (e.g. software-only canvas compositing on a kiosk with
+    // no GPU) instead of staying choppy indefinitely.
+    //
+    // lowPerf LATCHES for the rest of the page load. It used to recover after
+    // a run of fast frames — but shedding is exactly what MAKES the frames
+    // fast, so recovery re-armed the expensive path and the shell oscillated
+    // smooth/molasses every few seconds. Degraded-but-steady wins on a kiosk;
+    // a page reload (every game entry is a fresh page) re-arms full quality.
+    _trackFrameTime(ms) {
+      if (this.lowPerf) return;                              // latched
+      this._frameMsAvg = this._frameMsAvg == null ? ms : (this._frameMsAvg * 0.92 + ms * 0.08);
+      if (this._frameMsAvg > 42) {                           // sustained < ~24fps
+        this._slowFrames = (this._slowFrames || 0) + 1;
+        if (this._slowFrames > 45) {                         // ~2s of grind, not one hitch
+          this.lowPerf = true;
+          this._resize();     // re-apply canvas scales: halved GL budget, 2D layers join it
+        }
+      } else {
+        this._slowFrames = 0;
+      }
+    }
+
+    _loop(now) {
+      const rawMs = now - this._lastTime;
+      this._lastTime = now;
+      // While a shell dialog (high-score entry / name prompt) is up, freeze
+      // the scene on its last composited frame instead of re-rendering the
+      // full fractal layer behind it every frame. On slow machines that
+      // rendering starved the input pipeline — you typed and waited for the
+      // character to appear. The canvases keep their contents (the GL context
+      // uses preserveDrawingBuffer and the 2D layers just aren't cleared).
+      if (this._hsOpen || this._nameOpen) {
+        this._raf = requestAnimationFrame((t) => this._loop(t));
+        return;
+      }
+      // Feed the perf tracker every REAL frame, including the very slow ones.
+      // (The first cut only sampled frames under 50ms "to exclude tab-switch
+      // gaps" — which meant a machine grinding at <20fps NEVER tripped lowPerf
+      // and the adaptive shedding was dead exactly when it was needed. Only
+      // genuine rAF gaps (>1s: hidden tab, app switch) are excluded now, and
+      // samples are capped so one hitch can't poison the average.)
+      if (rawMs < 1000) this._trackFrameTime(Math.min(rawMs, 250));
+      let dt = rawMs / 1000;
+      if (dt > 0.05) dt = 0.05;           // clamp big gaps for game logic
+      this.time = (now - this._startTime) / 1000;
+      const w = this.size.w, h = this.size.h;
+      const g = this.game;
+
+      if (g.update) g.update(this, dt);
+
+      // bg layer
+      this.bg.clearRect(0, 0, w, h);
+      if (g.drawBackground) g.drawBackground(this, this.bg, w, h);
+
+      // gl layer (fractal spheres)
+      if (g.spheres) this._renderGL(g.spheres(this) || [], this.time);
+
+      // ui layer
+      this.ui.clearRect(0, 0, w, h);
+      if (g.drawForeground) g.drawForeground(this, this.ui, w, h);
+
+      // deferred name prompt — first frame has now composited behind it
+      if (this._namePromptPending) {
+        this._namePromptPending = false;
+        this._promptName();
+      }
+
+      // favicon bake — after first frames composited
+      if (this._bakePending && this.time > 1.2) {
+        this._bakePending = false;
+        this._bakeFavicon(this._bakeSphere);
+      }
+
+      this._raf = requestAnimationFrame((t) => this._loop(t));
+    }
+
+    _bakeFavicon(sphere) {
+      try {
+        sphere = sphere || (this.game.spheres && (this.game.spheres(this) || [])[0]);
+        if (!sphere) return;
+        const scale = this.glScale;                 // glCanvas backing scale (≤ dpr)
+        const sx = (sphere.x - sphere.r) * scale;
+        const sy = (sphere.y - sphere.r) * scale;   // no y-flip: reads composited DOM image
+        const sw = sphere.r * 2 * scale;
+        const size = 64;
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const cx = c.getContext('2d');
+        cx.save();
+        cx.beginPath(); cx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2); cx.clip();
+        cx.drawImage(this.glCanvas, sx, sy, sw, sw, 0, 0, size, size);
+        cx.restore();
+        cx.lineWidth = 2;
+        cx.strokeStyle = sphere.tint ? '#2cb1ff' : '#ff7a2c';
+        cx.beginPath(); cx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2); cx.stroke();
+        this.faviconLink.href = c.toDataURL('image/png');
+      } catch (e) { /* bake is cosmetic; ignore failures */ }
+    }
+  }
+
+  // Expose engine + constants for games.
+  window.FractalShell = FractalShell;
+  window.FractalShell.PRESETS = PRESETS;
+  window.FractalShell.THEME_NAMES = THEME_NAMES;
+})();
+
+</script>
+<script>
+/* ============================================================================
+   Terracotta Tic-Tac-Toe
+   ----------------------------------------------------------------------------
+   A game module for the Fractal Shell. Unlike pong/serpent it does NOT use the
+   WebGL fractal spheres — its pieces are hand-modeled CLAY marks drawn on the
+   2D ui layer: X's are glazed BLUE terra-cotta, O's are natural ORANGE
+   terra-cotta. The shell still owns all the chrome (header, back link,
+   fullscreen, New Game, mode switch) and the high-score plumbing.
+
+   Mechanics:
+     - 3×3 board. X (blue) always moves first.
+     - 1 Player: you are X, the computer is O (mostly-optimal minimax with an
+       occasional blunder so the game is winnable). 2 Players: hot-seat.
+     - First to three in a row wins; a full board with no line is a draw.
+     - A win is recorded to the shared leaderboard (1P records only human wins).
+
+   Coordinates are CSS pixels. (0,0) is the top-left of the play area.
+
+   Authored by Moti.
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  // Clay palettes — {base, light (top-left rim), dark (bottom-right shade)}.
+  const BLUE   = { base: '#4f93b8', light: '#9fd0ea', dark: '#274f66' };  // X — glazed blue terra-cotta
+  const ORANGE = { base: '#c46a3f', light: '#ecaa7c', dark: '#793a1f' };  // O — natural terra-cotta
+
+  const WIN_LINES = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],   // rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],   // cols
+    [0, 4, 8], [2, 4, 6],              // diagonals
+  ];
+
+  const AI_DELAY = 0.45;     // seconds the computer "thinks" before answering
+  const AI_BLUNDER = 0.22;   // chance the computer plays a random (beatable) move
+
+  // After a game ends we ignore taps for this long so the SAME tap that won the
+  // game can't immediately reset it. (On touch, one tap fires touchstart AND
+  // pointerdown — without this lock the duplicate event hit the rematch branch
+  // and instantly wiped the board, so a win never got to show.)
+  const END_LOCK = 0.6;      // seconds the board is "frozen on the result"
+
+  // Festive confetti palette — the two clay glazes plus party brights.
+  const CONFETTI = ['#4f93b8', '#9fd0ea', '#c46a3f', '#ecaa7c',
+                    '#f4d35e', '#6bbf59', '#e85d75', '#ffffff'];
+
+  const TicTacToeGame = {
+    id: 'tictactoe',
+    title: 'Clauck Tac Toe',
+    subtitle: 'Three in a row — clay X vs clay O',
+    aspect: 1,                 // square board
+    stageMax: 560,
+    hint: 'Three in a row wins   ·   Tap a square to place   ·   X (blue) moves first',
+
+    modes: [
+      { id: '1p', label: '1 Player' },
+      { id: '2p', label: '2 Players' },
+    ],
+
+    // Editable name bar above the board, tinted by each side's clay color.
+    // O is the AI in 1P — labeled 'Computer' unless a second human types over it.
+    players: [
+      { defaultName: 'Player 1', color: BLUE.base, maxLength: 12 },
+      { defaultName: (shell) => (shell.mode === '1p' ? 'Computer' : 'Player 2'),
+        color: ORANGE.base, maxLength: 12 },
+    ],
+
+    state: null,
+
+    // ---- lifecycle -----------------------------------------------------------
+    reset(shell) {
+      this.state = {
+        cells: new Array(9).fill(null),   // null | 'X' | 'O'
+        anim: new Array(9).fill(0),       // 0..1 pop-in per placed mark
+        turn: 'X',                        // X always starts
+        over: false,
+        winner: null,                     // 'X' | 'O' | 'draw' | null
+        line: null,                       // winning [i,j,k] for the strike
+        lineAnim: 0,                      // 0..1 strike-through draw
+        hover: -1,                        // cell under the pointer (desktop)
+        aiTimer: 0,                       // countdown before the computer moves
+        recorded: false,
+        endLock: 0,                       // taps ignored while > 0 (see END_LOCK)
+        confetti: [],                     // celebration particles on a win
+      };
+      this._geom(shell, shell.size.w, shell.size.h);
+    },
+
+    resize(shell, w, h) { this._geom(shell, w, h); },
+
+    _geom(shell, w, h) {
+      this.w = w; this.h = h;
+      // Reserve vertical headroom for the HUD: the status line sits ABOVE the
+      // board and the rematch hint sits BELOW it. Without this the square board
+      // fills the full height in landscape fullscreen and the HUD text gets
+      // drawn over (or off) the top/bottom edges — the "doesn't render
+      // properly" bug. `hud` is a band reserved on the top and bottom; the
+      // board is sized to fit the leftover height.
+      const hud = Math.min(w, h) * 0.13;
+      const size = Math.min(w, h - hud * 2);
+      this.size = size;
+      this.hud = hud;
+      this.x0 = (w - size) / 2;
+      this.y0 = hud + (h - hud * 2 - size) / 2;
+      this.cell = size / 3;
+      this.pad = size * 0.02;
+    },
+
+    // ---- update --------------------------------------------------------------
+    update(shell, dt) {
+      const s = this.state;
+      if (!s) return;
+
+      // Pop-in animation for placed marks.
+      for (let i = 0; i < 9; i++) {
+        if (s.cells[i] && s.anim[i] < 1) s.anim[i] = Math.min(1, s.anim[i] + dt * 5.5);
+      }
+      if (s.over && s.line && s.lineAnim < 1) s.lineAnim = Math.min(1, s.lineAnim + dt * 3.2);
+
+      // Tick down the post-game tap lock and advance the confetti.
+      if (s.endLock > 0) s.endLock = Math.max(0, s.endLock - dt);
+      if (s.confetti.length) this._updateConfetti(dt);
+
+      // Computer's turn (1P only).
+      if (!s.over && shell.mode === '1p' && s.turn === 'O') {
+        s.aiTimer -= dt;
+        if (s.aiTimer <= 0) this._aiMove(shell);
+      }
+    },
+
+    // ---- input ---------------------------------------------------------------
+    onPointerMove(shell, x, y) {
+      const s = this.state; if (!s || s.over) { if (s) s.hover = -1; return; }
+      if (shell.mode === '1p' && s.turn === 'O') { s.hover = -1; return; }
+      s.hover = this._cellAt(x, y);
+    },
+    onPointerDown(shell, x, y) {
+      const s = this.state; if (!s) return;
+      if (s.over) { if (s.endLock <= 0) this.reset(shell); return; }
+      if (shell.mode === '1p' && s.turn === 'O') return;   // wait for the computer
+      const i = this._cellAt(x, y);
+      if (i >= 0 && !s.cells[i]) this._place(shell, i, s.turn);
+    },
+    onKeyDown(shell, e) {
+      const s = this.state; if (!s) return;
+      if ((e.key === ' ' || e.key === 'Enter') && s.over && s.endLock <= 0) {
+        e.preventDefault(); this.reset(shell);
+      }
+    },
+
+    _cellAt(x, y) {
+      const gx = x - this.x0, gy = y - this.y0;
+      if (gx < 0 || gy < 0 || gx >= this.size || gy >= this.size) return -1;
+      const col = Math.min(2, Math.floor(gx / this.cell));
+      const row = Math.min(2, Math.floor(gy / this.cell));
+      return row * 3 + col;
+    },
+
+    _place(shell, i, player) {
+      const s = this.state;
+      s.cells[i] = player;
+      s.anim[i] = 0;
+      s.hover = -1;
+
+      const res = this._evaluate(s.cells);
+      if (res.winner) {
+        s.over = true; s.winner = res.winner; s.line = res.line;
+        s.endLock = END_LOCK;
+        this._burstConfetti(res.winner);
+        this._record(shell);
+      } else if (res.full) {
+        s.over = true; s.winner = 'draw';
+        s.endLock = END_LOCK;
+      } else {
+        s.turn = (player === 'X') ? 'O' : 'X';
+        if (shell.mode === '1p' && s.turn === 'O') s.aiTimer = AI_DELAY;
+      }
+    },
+
+    _record(shell) {
+      const s = this.state;
+      if (s.recorded || !shell.reportWin) return;
+      const idx = s.winner === 'X' ? 0 : 1;
+      // In 1P only the human (X) counts; in 2P either player counts.
+      if (shell.mode === '1p' && idx !== 0) { s.recorded = true; return; }
+      s.recorded = true;
+      shell.reportWin({ game: 'tictactoe', player: shell.playerName(idx) });
+    },
+
+    // ---- computer opponent (minimax with an occasional blunder) -------------
+    _aiMove(shell) {
+      const s = this.state;
+      const empty = [];
+      for (let i = 0; i < 9; i++) if (!s.cells[i]) empty.push(i);
+      if (!empty.length) return;
+      let move;
+      if (Math.random() < AI_BLUNDER) {
+        move = empty[(Math.random() * empty.length) | 0];
+      } else {
+        move = this._best(s.cells.slice(), 'O', 0).move;
+        if (move == null) move = empty[(Math.random() * empty.length) | 0];
+      }
+      this._place(shell, move, 'O');
+    },
+
+    // Minimax. O maximizes, X minimizes; depth term prefers faster wins.
+    _best(cells, player, depth) {
+      const res = this._evaluate(cells);
+      if (res.winner === 'O') return { score: 10 - depth };
+      if (res.winner === 'X') return { score: depth - 10 };
+      if (res.full) return { score: 0 };
+
+      let best = { score: player === 'O' ? -Infinity : Infinity, move: null };
+      const next = player === 'O' ? 'X' : 'O';
+      for (let i = 0; i < 9; i++) {
+        if (cells[i]) continue;
+        cells[i] = player;
+        const r = this._best(cells, next, depth + 1);
+        cells[i] = null;
+        if (player === 'O' ? r.score > best.score : r.score < best.score) {
+          best = { score: r.score, move: i };
+        }
+      }
+      return best;
+    },
+
+    _evaluate(cells) {
+      for (const [a, b, c] of WIN_LINES) {
+        if (cells[a] && cells[a] === cells[b] && cells[a] === cells[c]) {
+          return { winner: cells[a], line: [a, b, c], full: false };
+        }
+      }
+      return { winner: null, line: null, full: cells.every(Boolean) };
+    },
+
+    // ---- spheres: none — this game draws its pieces in 2D --------------------
+    spheres() { return []; },
+
+    // ---- background: board panel + glowing grid -----------------------------
+    drawBackground(shell, ctx, w, h) {
+      ctx.fillStyle = '#06060c';
+      ctx.fillRect(0, 0, w, h);
+
+      const amb = ctx.createRadialGradient(w / 2, h * 0.1, 0, w / 2, h * 0.1, Math.max(w, h));
+      amb.addColorStop(0, 'rgba(60, 34, 20, 0.30)');
+      amb.addColorStop(0.5, 'rgba(24, 16, 30, 0.10)');
+      amb.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = amb;
+      ctx.fillRect(0, 0, w, h);
+
+      // Board backing — a faintly warm slate the clay sits on.
+      const x0 = this.x0, y0 = this.y0, sz = this.size, r = sz * 0.04;
+      ctx.save();
+      ctx.fillStyle = 'rgba(20, 18, 24, 0.55)';
+      this._roundRect(ctx, x0, y0, sz, sz, r);
+      ctx.fill();
+      ctx.restore();
+
+      // Grid lines — warm, softly glowing.
+      ctx.save();
+      ctx.strokeStyle = 'rgba(196, 130, 90, 0.55)';
+      ctx.lineWidth = Math.max(2, sz * 0.008);
+      ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(196, 106, 63, 0.5)';
+      ctx.shadowBlur = sz * 0.02;
+      const inset = this.cell * 0.12;
+      for (let k = 1; k <= 2; k++) {
+        const gx = x0 + this.cell * k;
+        ctx.beginPath();
+        ctx.moveTo(gx, y0 + inset); ctx.lineTo(gx, y0 + sz - inset); ctx.stroke();
+        const gy = y0 + this.cell * k;
+        ctx.beginPath();
+        ctx.moveTo(x0 + inset, gy); ctx.lineTo(x0 + sz - inset, gy); ctx.stroke();
+      }
+      ctx.restore();
+    },
+
+    // ---- foreground: marks, hover ghost, status, win strike, end card -------
+    drawForeground(shell, ctx, w, h) {
+      const s = this.state; if (!s) return;
+      const cell = this.cell;
+
+      // Hover ghost (desktop) — faint outline of the mark you'd place.
+      if (s.hover >= 0 && !s.cells[s.hover] && !s.over) {
+        const c = this._center(s.hover);
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        this._mark(ctx, c.x, c.y, s.turn, 1);
+        ctx.restore();
+      }
+
+      // Placed marks.
+      for (let i = 0; i < 9; i++) {
+        if (!s.cells[i]) continue;
+        const c = this._center(i);
+        this._mark(ctx, c.x, c.y, s.cells[i], this._ease(s.anim[i]));
+      }
+
+      // Win strike-through.
+      if (s.over && s.line) this._strike(ctx, s);
+
+      // Status pill — whose turn, or the result.
+      this._status(shell, ctx, w, h);
+
+      if (s.over) {
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(243, 234, 217, 0.65)';
+        ctx.font = '300 ' + Math.round(this.size * 0.04) + 'px -apple-system, system-ui, sans-serif';
+        ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = this.size * 0.02;
+        ctx.fillText('Tap or press Space for a rematch', w / 2, this.y0 + this.size + this.hud * 0.55);
+        ctx.restore();
+      }
+
+      // Confetti rains on top of everything.
+      this._drawConfetti(ctx);
+    },
+
+    _center(i) {
+      const col = i % 3, row = (i / 3) | 0;
+      return { x: this.x0 + col * this.cell + this.cell / 2,
+               y: this.y0 + row * this.cell + this.cell / 2 };
+    },
+
+    // Draw a clay X or O centered at (cx,cy), scaled by `scale` (pop-in).
+    _mark(ctx, cx, cy, type, scale) {
+      if (scale <= 0) return;
+      const cell = this.cell;
+      const reach = cell * 0.30;            // half-extent of the mark
+      const lw = cell * 0.15;               // clay "rod" thickness
+      const pal = (type === 'X') ? BLUE : ORANGE;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+
+      let pathFn;
+      if (type === 'O') {
+        pathFn = (c) => { c.beginPath(); c.arc(0, 0, reach, 0, Math.PI * 2); };
+      } else {
+        pathFn = (c) => {
+          c.beginPath();
+          c.moveTo(-reach, -reach); c.lineTo(reach, reach);
+          c.moveTo(reach, -reach); c.lineTo(-reach, reach);
+        };
+      }
+      this._clay(ctx, pathFn, lw, pal);
+      ctx.restore();
+    },
+
+    // 3-pass clay stroke: drop-shadowed base, top-left rim light, bottom-right
+    // shade — gives the flat path a fired-clay, rounded-rod look.
+    _clay(ctx, pathFn, lw, pal) {
+      ctx.save();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+      // Base + soft drop shadow.
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = lw * 0.6;
+      ctx.shadowOffsetX = lw * 0.14;
+      ctx.shadowOffsetY = lw * 0.18;
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = pal.base;
+      pathFn(ctx); ctx.stroke();
+      ctx.restore();
+
+      // Bottom-right shade.
+      ctx.save();
+      ctx.translate(lw * 0.13, lw * 0.15);
+      ctx.lineWidth = lw * 0.52;
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = pal.dark;
+      pathFn(ctx); ctx.stroke();
+      ctx.restore();
+
+      // Top-left rim light.
+      ctx.save();
+      ctx.translate(-lw * 0.11, -lw * 0.13);
+      ctx.lineWidth = lw * 0.40;
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = pal.light;
+      pathFn(ctx); ctx.stroke();
+      ctx.restore();
+
+      ctx.restore();
+    },
+
+    _strike(ctx, s) {
+      const a = this._center(s.line[0]), c = this._center(s.line[2]);
+      const t = this._ease(s.lineAnim);
+      const ex = a.x + (c.x - a.x) * t, ey = a.y + (c.y - a.y) * t;
+      const pal = s.winner === 'X' ? BLUE : ORANGE;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = this.cell * 0.07;
+      ctx.strokeStyle = pal.light;
+      ctx.shadowColor = pal.base;
+      ctx.shadowBlur = this.cell * 0.18;
+      ctx.globalAlpha = 0.92;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.restore();
+    },
+
+    _status(shell, ctx, w, h) {
+      const s = this.state;
+      let text, color;
+      if (s.winner === 'draw') { text = "Draw — nobody's clay"; color = '#e8e0d2'; }
+      else if (s.winner) {
+        const idx = s.winner === 'X' ? 0 : 1;
+        text = shell.playerName(idx) + ' wins!';
+        color = (s.winner === 'X') ? BLUE.light : ORANGE.light;
+      } else {
+        const idx = s.turn === 'X' ? 0 : 1;
+        const thinking = (shell.mode === '1p' && s.turn === 'O');
+        text = thinking ? (shell.playerName(1) + ' is thinking…') : (shell.playerName(idx) + '’s turn');
+        color = (s.turn === 'X') ? BLUE.light : ORANGE.light;
+      }
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '600 ' + Math.round(this.size * 0.05) + 'px -apple-system, system-ui, sans-serif';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = this.size * 0.02;
+      ctx.fillStyle = color;
+      ctx.fillText(text, w / 2, this.y0 - this.hud * 0.5);
+      ctx.restore();
+    },
+
+    // ---- confetti celebration ------------------------------------------------
+    // Two corner "cannons" fire up-and-inward plus a sprinkle from above, so the
+    // winner gets a proper shower that rains down over the board.
+    _burstConfetti() {
+      const s = this.state;
+      const w = this.w || 600, h = this.h || 600;
+      const parts = [];
+      const rnd = (a, b) => a + Math.random() * (b - a);
+
+      const cannon = (ox, dir) => {
+        for (let i = 0; i < 70; i++) {
+          parts.push({
+            x: ox, y: h + rnd(-10, 10),
+            vx: dir * rnd(60, 320), vy: rnd(-820, -520),
+            rot: rnd(0, Math.PI * 2), vrot: rnd(-9, 9),
+            w: rnd(6, 13), h: rnd(8, 18),
+            color: CONFETTI[(Math.random() * CONFETTI.length) | 0],
+            life: rnd(2.2, 3.6),
+          });
+        }
+      };
+      cannon(0, 1);                  // bottom-left → up-right
+      cannon(w, -1);                 // bottom-right → up-left
+      for (let i = 0; i < 50; i++) { // sprinkle from above the board
+        parts.push({
+          x: rnd(0, w), y: rnd(-h * 0.4, -20),
+          vx: rnd(-60, 60), vy: rnd(80, 240),
+          rot: rnd(0, Math.PI * 2), vrot: rnd(-9, 9),
+          w: rnd(6, 13), h: rnd(8, 18),
+          color: CONFETTI[(Math.random() * CONFETTI.length) | 0],
+          life: rnd(2.6, 4.2),
+        });
+      }
+      s.confetti = parts;
+    },
+
+    _updateConfetti(dt) {
+      const s = this.state, h = this.h || 600;
+      const g = 1500;               // gravity (px/s²)
+      const next = [];
+      for (const p of s.confetti) {
+        p.life -= dt;
+        if (p.life <= 0) continue;
+        p.vy += g * dt;
+        p.vx *= (1 - 0.6 * dt);     // air drag, mostly on the sideways throw
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.rot += p.vrot * dt;
+        if (p.y < h + 40) next.push(p);
+      }
+      s.confetti = next;
+    },
+
+    _drawConfetti(ctx) {
+      const s = this.state;
+      if (!s.confetti.length) return;
+      ctx.save();
+      for (const p of s.confetti) {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        // A little flutter: squash width by the rotation so flakes look thin edge-on.
+        const sx = 0.55 + 0.45 * Math.abs(Math.cos(p.rot * 1.7));
+        ctx.globalAlpha = Math.min(1, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2 * sx, -p.h / 2, p.w * sx, p.h);
+        ctx.restore();
+      }
+      ctx.restore();
+    },
+
+    // ---- helpers -------------------------------------------------------------
+    _ease(t) {                       // easeOutBack — a little overshoot on pop-in
+      t = Math.max(0, Math.min(1, t));
+      const c1 = 1.70158, c3 = c1 + 1;
+      return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+    },
+    _roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    },
+  };
+
+  window.TicTacToeGame = TicTacToeGame;
+})();
+
+</script>
+<script>
+  window.addEventListener('DOMContentLoaded', function () {
+    new FractalShell().mount(window.TicTacToeGame, document.getElementById('app'));
+  });
+</script>
+</body>
+</html>

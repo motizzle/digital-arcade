@@ -1,0 +1,140 @@
+{
+  "_comment": "Sorkin Arcade manifest — single source of truth. Add a game = add an entry to `games`. Builder/character cards come from `builders`. Drop image URLs into a builder's `faces` array (e.g. character composites or photos in arcade/faces/) and the marquee reel cross-fades through them; empty = pixel-sprite placeholder. `madeWithClaude: true` adds the subdued Anthropic star.",
+  "builders": {
+    "sorkins": {
+      "name": "Sorkins",
+      "color": "#ff7a2c",
+      "mark": "S",
+      "role": "PLAYER 1",
+      "faces": []
+    }
+  },
+  "reel": [
+    "sorkins"
+  ],
+  "games": [
+    {
+      "slug": "checkers",
+      "title": "Fractal Checkers",
+      "tagline": "Checkers where every piece is a living fractal sphere.",
+      "url": "/checkers",
+      "builders": [
+        "sorkins"
+      ],
+      "madeWithClaude": true,
+      "tags": [
+        "strategy",
+        "2-player"
+      ],
+      "accent": "#ff7a2c",
+      "scored": true,
+      "scoreOrder": "desc",
+      "scoreMetric": "most wins"
+    },
+    {
+      "slug": "pong",
+      "title": "Radioactive Pong",
+      "tagline": "Timed pong — dodge your own goal, and the ball that splits in five.",
+      "url": "/pong",
+      "builders": [
+        "sorkins"
+      ],
+      "madeWithClaude": true,
+      "tags": [
+        "arcade",
+        "1–2 player"
+      ],
+      "accent": "#5fd06a",
+      "scored": true,
+      "scoreOrder": "asc",
+      "scoreMetric": "fewest conceded · 1P"
+    },
+    {
+      "slug": "serpent",
+      "title": "Serpent Bloom",
+      "tagline": "A living solar system — the Sun leads Mercury through Neptune.",
+      "url": "/serpent",
+      "builders": [
+        "sorkins"
+      ],
+      "madeWithClaude": true,
+      "tags": [
+        "arcade",
+        "zen"
+      ],
+      "accent": "#ff3ca6",
+      "scored": true,
+      "scoreOrder": "desc",
+      "scoreMetric": "longest serpent"
+    },
+    {
+      "slug": "tictactoe",
+      "title": "Clauck Tac Toe",
+      "tagline": "Three in a row — glazed blue X's vs sun-fired orange O's.",
+      "url": "/tictactoe",
+      "builders": [
+        "sorkins"
+      ],
+      "madeWithClaude": true,
+      "tags": [
+        "strategy",
+        "1–2 player"
+      ],
+      "accent": "#4f93b8",
+      "scored": true,
+      "scoreOrder": "desc",
+      "scoreMetric": "most wins"
+    },
+    {
+      "slug": "grok-tictactoe",
+      "title": "Grok Tac Toe",
+      "tagline": "Blue glazed clay X vs orange terra-cotta O — confetti when you win.",
+      "url": "/grok-tictactoe",
+      "builders": [
+        "sorkins"
+      ],
+      "tags": [
+        "strategy",
+        "1–2 player"
+      ],
+      "accent": "#c46a3f",
+      "scored": true,
+      "scoreOrder": "desc",
+      "scoreMetric": "most wins"
+    },
+    {
+      "slug": "connect4",
+      "title": "Connect 4",
+      "tagline": "Four in a row of living fractal spheres — arm a bomb to blow up the board.",
+      "url": "/connect4",
+      "builders": [
+        "sorkins"
+      ],
+      "madeWithClaude": true,
+      "tags": [
+        "strategy",
+        "1–2 player"
+      ],
+      "accent": "#2cb1ff",
+      "scored": true,
+      "scoreOrder": "desc",
+      "scoreMetric": "most wins"
+    },
+    {
+      "slug": "f1-raceing",
+      "title": "F1 Raceing",
+      "tagline": "A yellow Lambo — dodge cars and debris down a long road.",
+      "url": "/f1-raceing",
+      "builders": [
+        "sorkins"
+      ],
+      "madeWithClaude": true,
+      "tags": [
+        "arcade",
+        "1-player"
+      ],
+      "accent": "#f5c451",
+      "scored": false
+    }
+  ]
+}

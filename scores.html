@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sorkin Arcade — High Scores</title>
+<link rel="icon" href="https://motisorkin.com/favicon.ico" sizes="32x32" />
+<link rel="icon" href="https://motisorkin.com/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<!-- highscores:begin — inlined from engine/highscores.js by `node build.js hub`; edit the source there, not here -->
+<script>
+/* ============================================================================
+   Arcade High Scores
+   ----------------------------------------------------------------------------
+   A tiny, DOM-agnostic high-score store shared by the hub and every game.
+
+   Two layers, both pure-ish and unit-tested (see highscores.test.js):
+     - ranking logic   : qualifies() / rankInsert() / sortTrim()  (no I/O)
+     - persistence      : load() / save() / submit() / top()       (Storage)
+
+   Scores live in localStorage under `arcade.hs.<gameId>` as a JSON array of
+   { name, score, ts }. `order` is 'desc' (higher is better, default) or 'asc'
+   (lower is better). The board is capped to MAX (top ten — classic arcade).
+
+   Runs in the browser (window.HighScores) and Node (module.exports) so the
+   ranking logic can be tested without a DOM. Storage is injectable, so tests
+   pass an in-memory stub instead of localStorage.
+   ========================================================================== */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.HighScores = factory();
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  const MAX = 10;                 // top ten
+  const PREFIX = 'arcade.hs.';
+  const PLAYER_KEY = 'arcade.player';        // the identity picked this session
+  const LAST_PLAYER_KEY = 'arcade.player.last';  // previous answer, prompt prefill only
+
+  function cmp(order) {
+    // Sort so the BEST score is first. 'asc' => smaller is better.
+    return (order === 'asc') ? (a, b) => a - b : (a, b) => b - a;
+  }
+
+  // Sort a list best-first and trim to `max`. Ties broken by earliest ts
+  // (the older record keeps the higher rank — first to get there wins).
+  function sortTrim(list, order, max) {
+    if (max == null) max = MAX;
+    const c = cmp(order);
+    const out = (list || []).slice().sort(
+      (a, b) => c(a.score, b.score) || ((a.ts || 0) - (b.ts || 0))
+    );
+    return out.slice(0, max);
+  }
+
+  // Would `score` earn a spot on the board?
+  function qualifies(list, score, order, max) {
+    order = order || 'desc';
+    if (max == null) max = MAX;
+    if (typeof score !== 'number' || !isFinite(score)) return false;
+    const board = sortTrim(list, order, max);
+    if (board.length < max) return true;
+    const worst = board[board.length - 1];
+    return (order === 'asc') ? (score < worst.score) : (score > worst.score);
+  }
+
+  // Insert `entry` and re-rank. Returns { list, rank }; rank is the 0-based
+  // position of `entry` on the trimmed board, or -1 if it didn't make it.
+  function rankInsert(list, entry, order, max) {
+    order = order || 'desc';
+    if (max == null) max = MAX;
+    const merged = sortTrim((list || []).concat([entry]), order, max);
+    return { list: merged, rank: merged.indexOf(entry) };
+  }
+
+  // ---- persistence ---------------------------------------------------------
+  function defaultStorage() {
+    try { if (typeof localStorage !== 'undefined') return localStorage; } catch (e) {}
+    return null;
+  }
+  function key(gameId) { return PREFIX + gameId; }
+
+  function load(gameId, storage) {
+    storage = storage || defaultStorage();
+    if (!storage) return [];
+    try {
+      const raw = storage.getItem(key(gameId));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr)
+        ? arr.filter((e) => e && typeof e.score === 'number' && isFinite(e.score))
+        : [];
+    } catch (e) { return []; }
+  }
+
+  function save(gameId, list, storage) {
+    storage = storage || defaultStorage();
+    if (!storage) return;
+    try { storage.setItem(key(gameId), JSON.stringify(list)); } catch (e) {}
+  }
+
+  // Normalize a name to the arcade shape: A–Z0–9, capped to maxLen (default 3,
+  // the classic initials length; win-tally boards pass a longer maxLen so real
+  // player names like MOTI / ADA survive).
+  function sanitizeName(name, maxLen) {
+    if (maxLen == null) maxLen = 3;
+    const s = String(name == null ? '' : name).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, maxLen);
+    return s || 'AAA';
+  }
+
+  function now() { try { return Date.now(); } catch (e) { return 0; } }
+
+  // Record a score. Returns { list, rank, entry } — rank -1 means off the board
+  // (still saved to nothing; the caller usually checks qualifies() first).
+  function submit(gameId, name, score, opts) {
+    opts = opts || {};
+    const order = opts.order || 'desc';
+    const max = (opts.max == null) ? MAX : opts.max;
+    const storage = opts.storage;
+    const ts = (opts.ts == null) ? now() : opts.ts;
+    const entry = { name: sanitizeName(name, opts.maxLen), score: score, ts: ts };
+    const { list, rank } = rankInsert(load(gameId, storage), entry, order, max);
+    save(gameId, list, storage);
+    return { list: list, rank: rank, entry: entry };
+  }
+
+  // Cumulative tally: add `delta` (default 1) to the named player's running
+  // total for a game, keyed by name (one row per player). Used by win-based
+  // games (tic-tac-toe, Connect 4) where the "high score" is total wins.
+  function bump(gameId, name, delta, opts) {
+    opts = opts || {};
+    const storage = opts.storage;
+    const order = opts.order || 'desc';
+    const max = (opts.max == null) ? MAX : opts.max;
+    const inc = (delta == null) ? 1 : delta;
+    const nm = sanitizeName(name, opts.maxLen == null ? 12 : opts.maxLen);
+    const list = load(gameId, storage);
+    let entry = null;
+    for (let i = 0; i < list.length; i++) { if (list[i].name === nm) { entry = list[i]; break; } }
+    if (entry) entry.score += inc;
+    else list.push({ name: nm, score: inc, ts: (opts.ts == null ? now() : opts.ts) });
+    const trimmed = sortTrim(list, order, max);
+    save(gameId, trimmed, storage);
+    return trimmed;
+  }
+
+  // ---- shared player identity ----------------------------------------------
+  // "Who's playing?" is asked once per browser SESSION. The answer lives in
+  // sessionStorage: it survives navigating between the hub and the games
+  // (same-tab page loads share it) but a fresh visit asks again — kids swap
+  // chairs between visits. The most recent answer is also kept in
+  // localStorage, purely as a prompt prefill, never as an identity.
+  function defaultSession() {
+    try { if (typeof sessionStorage !== 'undefined') return sessionStorage; } catch (e) {}
+    return null;
+  }
+
+  function readName(storage, k) {
+    if (!storage) return '';
+    try {
+      const raw = storage.getItem(k);
+      if (!raw) return '';                       // unset — don't fabricate 'AAA'
+      return String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    } catch (e) { return ''; }
+  }
+
+  function player(storage) {
+    return readName(storage || defaultSession(), PLAYER_KEY);
+  }
+
+  // The previous session's name — offered as a prefill in name prompts.
+  function lastPlayer(storage) {
+    return readName(storage || defaultStorage(), LAST_PLAYER_KEY);
+  }
+
+  function setPlayer(name, storage) {
+    storage = storage || defaultSession();
+    const nm = sanitizeName(name, 12);
+    if (storage) { try { storage.setItem(PLAYER_KEY, nm); } catch (e) {} }
+    const last = defaultStorage();
+    if (last) { try { last.setItem(LAST_PLAYER_KEY, nm); } catch (e) {} }
+    return nm;
+  }
+
+  function top(gameId, n, opts) {
+    opts = opts || {};
+    const board = sortTrim(load(gameId, opts.storage), opts.order || 'desc', opts.max || MAX);
+    return (n != null) ? board.slice(0, n) : board;
+  }
+
+  function clear(gameId, storage) {
+    storage = storage || defaultStorage();
+    if (storage) { try { storage.removeItem(key(gameId)); } catch (e) {} }
+  }
+
+  return {
+    MAX, PREFIX, PLAYER_KEY, LAST_PLAYER_KEY,
+    cmp, sortTrim, qualifies, rankInsert, sanitizeName,
+    key, load, save, submit, bump, top, clear,
+    player, setPlayer, lastPlayer,
+  };
+});
+</script>
+<!-- highscores:end -->
+<style>
+  :root {
+    --bg: #06060c; --fg: #f3ead9; --muted: #8b8b9c;
+    --neon1: #ff7a2c; --neon2: #ff3ca6; --line: #1c1c2b;
+    --px: 'Press Start 2P', ui-monospace, "SF Mono", Menlo, monospace;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100vh;
+    background: #06060c; color: var(--fg);
+    font-family: var(--mono); -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 90;
+    background: repeating-linear-gradient(to bottom,
+      rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.28) 2px 3px);
+    mix-blend-mode: multiply; opacity: 0.6;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 89;
+    background: radial-gradient(ellipse at 50% 38%, transparent 52%, rgba(0,0,0,0.6) 100%);
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 18px 70px; position: relative; z-index: 1; }
+
+  .arcade-back {
+    position: fixed; top: 14px; left: 14px; z-index: 60;
+    font-family: var(--px); font-size: 9px; letter-spacing: 1px;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
+    padding: 9px 13px; background: rgba(10,10,18,0.7);
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .arcade-back:hover { color: var(--fg); border-color: var(--neon2); }
+
+  .marquee { text-align: center; margin-bottom: 26px; }
+  .marquee h1 {
+    margin: 0; font-family: var(--px);
+    font-size: clamp(14px, 4vw, 26px); line-height: 1.4; letter-spacing: 1px;
+    color: #ffe9d6;
+    text-shadow: 0 0 4px #fff, 0 0 10px var(--neon1), 0 0 22px var(--neon1),
+      0 0 40px var(--neon2), 0 0 70px var(--neon2);
+    animation: flicker 4.5s infinite steps(60);
+  }
+  @keyframes flicker {
+    0%,18%,22%,25%,53%,57%,100% { opacity: 1; }
+    20%,24%,55% { opacity: 0.72; }
+  }
+  .rule {
+    height: 2px; margin: 14px auto 0; max-width: 420px;
+    background: linear-gradient(90deg, transparent, var(--neon1), var(--neon2), transparent);
+    box-shadow: 0 0 10px var(--neon1);
+  }
+
+  /* ---- filters ---- */
+  .hs-filters { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin: 22px 0 14px; }
+  .hs-filt { display: inline-flex; align-items: center; gap: 7px; }
+  .hs-filt-l { font-family: var(--px); font-size: 8px; letter-spacing: 1px; color: var(--muted); }
+  .hs-sel {
+    font-family: var(--mono); font-size: 12px; color: var(--fg);
+    background: #0e0e17; border: 1px solid var(--line); border-radius: 6px;
+    padding: 7px 10px; outline: none; cursor: pointer;
+  }
+  .hs-sel:focus { border-color: var(--neon2); }
+
+  /* ---- boards ---- */
+  .hs-board { border-top: 1px solid var(--line); }
+  .hs-game { border-bottom: 1px solid var(--line); padding: 16px 12px 18px 22px; }
+  .hs-game .hs-h {
+    font-family: var(--px); font-size: 11px; letter-spacing: 1px; color: #fff;
+    text-shadow: 0 0 10px var(--ac); margin-bottom: 4px;
+  }
+  .hs-game .hs-metric { color: var(--muted); font-size: 11px; margin-bottom: 12px; letter-spacing: 0.04em; }
+  .hs-rows { display: grid; gap: 8px; }
+  .hs-row { display: grid; grid-template-columns: 26px 1fr auto; align-items: baseline; gap: 12px; }
+  .hs-rank { font-family: var(--px); font-size: 9px; color: var(--muted); }
+  .hs-name { font-family: var(--px); font-size: 11px; color: var(--ac); letter-spacing: 1px; }
+  .hs-val { color: var(--fg); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .hs-empty { color: var(--muted); font-family: var(--px); font-size: 8px; letter-spacing: 1px; }
+
+  .foot { text-align: center; margin-top: 30px; }
+  .foot a {
+    font-family: var(--px); font-size: 10px; letter-spacing: 1.5px;
+    color: var(--neon2); border: 1px solid var(--neon2); border-radius: 6px;
+    padding: 11px 18px; display: inline-block; text-shadow: 0 0 8px var(--neon2);
+    transition: color 0.12s, box-shadow 0.12s, border-color 0.12s;
+  }
+  .foot a:hover { color: #fff; border-color: #fff; box-shadow: 0 0 16px -2px var(--neon2); }
+
+  @media (prefers-reduced-motion: reduce) { .marquee h1 { animation: none; } }
+</style>
+</head>
+<body>
+<a class="arcade-back" href="/">‹ ARCADE</a>
+<div class="wrap">
+  <header class="marquee">
+    <h1>HIGH SCORES</h1>
+    <div class="rule"></div>
+  </header>
+
+  <div class="hs-filters" id="hsFilters"></div>
+  <section class="hs-board" id="highscores"></section>
+
+  <div class="foot"><a href="/">‹ BACK TO ARCADE</a></div>
+</div>
+
+<script>
+  fetch('games.json', { cache: 'no-cache' })
+    .then((r) => r.json())
+    .then((data) => buildHighScores(data))
+    .catch((e) => { console.error(e); });
+
+  // Render a board for every scored game, with GAME + PLAYER filters.
+  function buildHighScores(data) {
+    const host = document.getElementById('highscores');
+    const filters = document.getElementById('hsFilters');
+    const games = (data.games || []).filter((g) => g.scored);
+    if (!host || !window.HighScores || !games.length) {
+      host.innerHTML = '<div class="hs-empty" style="padding:18px 22px">NO SCORES YET</div>';
+      return;
+    }
+
+    // Pull each game's full board once (keeping each entry's true rank), and
+    // collect distinct player names for the PLAYER filter.
+    const boards = {};
+    const players = new Set();
+    for (const g of games) {
+      const full = HighScores.top(g.slug, null, { order: g.scoreOrder || 'desc' });
+      boards[g.slug] = full.map((e, i) => ({ name: e.name, score: e.score, rank: i + 1 }));
+      full.forEach((e) => players.add(e.name));
+    }
+
+    const opt = (value, text) => {
+      const o = document.createElement('option'); o.value = value; o.textContent = text; return o;
+    };
+    const labelled = (text, sel) => {
+      const w = document.createElement('label'); w.className = 'hs-filt';
+      const s = document.createElement('span'); s.className = 'hs-filt-l'; s.textContent = text;
+      w.appendChild(s); w.appendChild(sel); return w;
+    };
+    const gameSel = document.createElement('select');
+    gameSel.className = 'hs-sel'; gameSel.setAttribute('aria-label', 'Filter high scores by game');
+    gameSel.appendChild(opt('*', 'ALL GAMES'));
+    games.forEach((g) => gameSel.appendChild(opt(g.slug, g.title.toUpperCase())));
+
+    const playerSel = document.createElement('select');
+    playerSel.className = 'hs-sel'; playerSel.setAttribute('aria-label', 'Filter high scores by player');
+    playerSel.appendChild(opt('*', 'ALL PLAYERS'));
+    Array.from(players).sort().forEach((p) => playerSel.appendChild(opt(p, p)));
+
+    filters.innerHTML = '';
+    filters.appendChild(labelled('GAME', gameSel));
+    filters.appendChild(labelled('PLAYER', playerSel));
+
+    function gameBox(g, entries) {
+      const box = document.createElement('div');
+      box.className = 'hs-game'; box.style.setProperty('--ac', g.accent || '#ff7a2c');
+      const h = document.createElement('div'); h.className = 'hs-h'; h.textContent = g.title;
+      box.appendChild(h);
+      if (g.scoreMetric) {
+        const m = document.createElement('div'); m.className = 'hs-metric'; m.textContent = g.scoreMetric;
+        box.appendChild(m);
+      }
+      const rows = document.createElement('div'); rows.className = 'hs-rows';
+      if (!entries.length) {
+        const e = document.createElement('div');
+        e.className = 'hs-empty'; e.textContent = 'NO SCORES YET';
+        rows.appendChild(e);
+      } else {
+        entries.forEach((entry) => {
+          const row = document.createElement('div'); row.className = 'hs-row';
+          const r = document.createElement('span'); r.className = 'hs-rank'; r.textContent = String(entry.rank).padStart(2, '0');
+          const nm = document.createElement('span'); nm.className = 'hs-name'; nm.textContent = entry.name;
+          const v = document.createElement('span'); v.className = 'hs-val'; v.textContent = entry.score;
+          row.appendChild(r); row.appendChild(nm); row.appendChild(v);
+          rows.appendChild(row);
+        });
+      }
+      box.appendChild(rows);
+      return box;
+    }
+
+    function render() {
+      host.innerHTML = '';
+      const gv = gameSel.value, pv = playerSel.value;
+      let any = false;
+      for (const g of games) {
+        if (gv !== '*' && g.slug !== gv) continue;
+        let entries = boards[g.slug];
+        if (pv !== '*') {
+          entries = entries.filter((e) => e.name === pv);
+          if (!entries.length) continue;          // hide games this player isn't on
+        } else {
+          entries = entries.slice(0, 10);         // top ten per game
+        }
+        any = true;
+        host.appendChild(gameBox(g, entries));
+      }
+      if (!any) {
+        const e = document.createElement('div');
+        e.className = 'hs-empty'; e.style.padding = '18px 22px';
+        e.textContent = pv === '*' ? 'NO SCORES YET' : 'NO SCORES FOR ' + pv;
+        host.appendChild(e);
+      }
+    }
+    gameSel.addEventListener('change', render);
+    playerSel.addEventListener('change', render);
+    render();
+  }
+</script>
+</body>
+</html>

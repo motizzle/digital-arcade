@@ -1,0 +1,3962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Fractal Checkers</title>
+<!-- Replaced at runtime with a baked fractal-sphere PNG. The 1x1
+     transparent default avoids a 404 flash before bake completes. -->
+<link rel="icon" id="faviconLink" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" />
+<link rel="apple-touch-icon" href="https://motisorkin.com/apple-touch-icon.png" />
+<meta property="og:site_name" content="Moti Sorkin" />
+<meta property="og:title" content="Fractal Checkers — Moti Sorkin" />
+<style>
+  :root {
+    --bg: #0a0a14; --bg2: #14141f;
+    --fg: #e8e8f0; --muted: #888;
+    --accent: #ff7a2c; --accent2: #2cb1ff;
+    --line: #303045;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%;
+    height: 100dvh; max-height: 100dvh;
+    background: radial-gradient(ellipse at 50% -20%, #1a1a2e 0%, var(--bg) 60%);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    position: fixed;
+    inset: 0;
+    display: flex; flex-direction: column;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  header {
+    flex-shrink: 0;
+    padding: 12px 20px 4px;
+    text-align: center;
+  }
+  header h1 {
+    margin: 0; font-weight: 300; font-size: clamp(22px, 3.4vw, 32px); letter-spacing: 0.04em;
+    background: linear-gradient(90deg, #ff7a2c, #ff3ca6, #2cb1ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; letter-spacing: 0.06em; }
+  main {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 0 16px 8px;
+    overflow: hidden;
+  }
+  #controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    margin: 14px 0; padding: 10px 14px;
+    background: rgba(20, 20, 31, 0.6);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+  }
+  #controls button {
+    background: linear-gradient(180deg, #2a2a3f, #1a1a2a);
+    color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 14px; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  #controls button:hover { border-color: var(--accent); color: var(--accent); }
+  #turnIndicator {
+    font-size: 14px; padding: 4px 10px; border-radius: 4px;
+    background: rgba(0,0,0,0.3); min-width: 160px; text-align: center;
+  }
+  /* --- Tabs (Live / Lab) --- */
+  nav.tabs {
+    display: flex; gap: 4px; justify-content: center;
+    margin: 14px auto 0; padding: 4px;
+    background: rgba(20, 20, 31, 0.6);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    width: max-content;
+  }
+  nav.tabs .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    padding: 8px 22px;
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
+  }
+  nav.tabs .tab-btn.active {
+    background: linear-gradient(180deg, #2a2a3f, #1a1a2a);
+    color: var(--fg);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  body.tab-live .lab-only { display: none !important; }
+  body.tab-lab  .live-only { display: none !important; }
+  /* Production mode (deployed at motisorkin.com/games/...): hide the
+     Live/Lab tabs, hide all lab-only chrome, drop the subtitle, and
+     show a "Play with a friend" share button. The board is allowed
+     to grow much larger because there's no dev chrome eating space. */
+  body.production { padding: 0.5rem 0 0; }
+  body.production nav.tabs { display: none !important; }
+  /* When the URL has ?match=<id> we're in a 2-player session — the
+     Lab tab makes no sense in that context, so hide the tab nav and
+     stay in Live mode regardless of build path. */
+  body.match-mode nav.tabs { display: none !important; }
+  body.match-mode .dev-suffix { display: none; }
+  body.production .lab-only { display: none !important; }
+  body.production header .sub,
+  body.production header .dev-suffix { display: none; }
+  body.production header {
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: none;
+  }
+  body.production header h1 {
+    font-size: 1.6rem;
+    /* Title reflects the two team colors — fire / ice. The gradient
+       crossover sits between "Fractal" and "Checkers". */
+    background: linear-gradient(90deg, #ff7a2c 0%, #ff7a2c 42%, #2cb1ff 58%, #2cb1ff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+  body.production main { padding: 4px 0 8px; }
+  /* Hide the verbose status line ("Player 1's turn.") — the active
+     player's name in the top-bar already has a colored underline that
+     conveys whose turn it is. Frees ~28px of board vertical space. */
+  body.production #message { display: none; }
+  /* Bigger board: relax all three caps so the canvas grows toward
+     viewport edges. The 200px below = approx fixed chrome (header-h
+     88 + control row ~50 + small margins + the share panel when
+     showing). Adjust if the share panel feels squeezed. */
+  body.production .game-frame { margin-top: 4px; }
+  body.production #liveBottom { margin: 4px auto 6px !important; flex-shrink: 0; }
+  /* Game frame centers the canvas. */
+  .game-frame {
+    flex: 1; min-height: 0;
+    display: flex;
+    align-items: center; justify-content: center;
+    margin: 4px auto 0;
+    width: 100%;
+  }
+  nav.tabs { flex-shrink: 0; }
+  #controls, #liveBottom, #mpSharePanel { flex-shrink: 0; }
+  /* Live tab top-bar — 3 rows × 3 columns. Names live ONLY here
+     (no corner duplicates). Captured-zone divs are transparent
+     layout placeholders; the captured-piece fractals render on the
+     canvas behind them at the exact bounding-rect of each zone. */
+  .top-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--header-h);
+    z-index: 10;
+    display: grid;
+    grid-template-areas:
+      "name1 vs   name2"
+      "cnt1  .    cnt2"
+      "cap1  .    cap2";
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-content: center;
+    justify-items: center;
+    padding: 6px 14px 8px;
+    gap: 2px 18px;
+    pointer-events: none;
+  }
+  .top-bar > * { pointer-events: auto; min-width: 0; }
+  .top-bar .player-name {
+    background: transparent;
+    color: var(--fg);
+    border: none;
+    border-bottom: 1px dashed transparent;
+    font: inherit; font-size: 14px; font-weight: 500;
+    padding: 2px 4px;
+    width: 110px;
+    max-width: 100%;
+    text-align: center;
+    letter-spacing: 0.02em;
+    box-sizing: border-box;
+  }
+  .top-bar .pinfo-name-p1 { color: #ff7a2c; grid-area: name1; }
+  .top-bar .pinfo-name-p2 { color: #2cb1ff; grid-area: name2; }
+  .top-bar .player-name.active-turn {
+    border-bottom-color: currentColor;
+    border-bottom-style: solid;
+  }
+  /* Winner gets a thicker underline + bold weight + a soft glow so
+     victory reads from the top bar without needing the message div
+     (hidden in production). ::after won't render on <input>, so the
+     decoration lives on the input itself. */
+  .top-bar .player-name.winner {
+    border-bottom-color: currentColor;
+    border-bottom-style: solid;
+    border-bottom-width: 2px;
+    font-weight: 700;
+    text-shadow: 0 0 12px currentColor, 0 0 4px currentColor;
+  }
+  .top-bar .player-name:hover, .top-bar .player-name:focus {
+    border-bottom-color: rgba(255, 255, 255, 0.28);
+    outline: none;
+  }
+  .top-bar .vs-sep {
+    grid-area: vs;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    align-self: center;
+  }
+  .top-bar .count {
+    font-size: 13px; font-weight: 600; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    white-space: nowrap;
+  }
+  .top-bar .count[data-count="0"] { grid-area: cnt1; }
+  .top-bar .count[data-count="1"] { grid-area: cnt2; }
+  .top-bar .count .count-num { font-size: 17px; }
+  .top-bar .count .count-suffix {
+    color: var(--muted); font-weight: 400;
+    font-size: 11px; margin-left: 3px;
+    text-transform: lowercase;
+  }
+  .top-bar .captured-zone {
+    width: 192px;
+    max-width: 100%;
+    height: 22px;
+    pointer-events: none;
+  }
+  .top-bar .captured-zone[data-zone="0"] { grid-area: cap1; }
+  .top-bar .captured-zone[data-zone="1"] { grid-area: cap2; }
+  /* Canvas frame: a compact 3-row header (names / counts / captured
+     fractals) over a square board. --header-h is 0 in Lab tab so the
+     canvas is a pure board; 88 in Live tab to fit the stacked block. */
+  :root { --header-h: 0px; }
+  body.tab-live { --header-h: 88px; }
+  #canvasWrap {
+    position: relative;
+    max-width: min(98vw, 1100px);
+    max-height: 100%;
+    width: min(min(98vw, 1100px), calc((100% - var(--header-h)) * 1));
+    height: calc(min(min(98vw, 1100px), calc((100% - var(--header-h)) * 1)) + var(--header-h));
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 60px rgba(255, 122, 44, 0.08), 0 0 100px rgba(44, 177, 255, 0.06);
+    border: 1px solid var(--line);
+    background: #04040a;
+    touch-action: none;
+  }
+  a, button, input, textarea, select, label {
+    touch-action: manipulation;
+  }
+  #bgCanvas, #glCanvas, #uiCanvas {
+    position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  }
+  /* Fullscreen toggle — in the control row with New Game / Theme. */
+  .fs-btn {
+    padding: 8px 12px;
+    font-size: 16px; line-height: 1;
+    min-width: 42px;
+  }
+  /* Native fullscreen: the wrap becomes the whole screen — drop the size caps
+     and border so the board fills the display edge to edge. */
+  #canvasWrap:fullscreen,
+  #canvasWrap:-webkit-full-screen {
+    width: 100vw !important; height: 100vh !important; max-width: none;
+    border-radius: 0; border: none;
+  }
+  /* iOS Safari has no element fullscreen — a CSS class covers the viewport. */
+  #canvasWrap.pseudo-fs {
+    position: fixed; inset: 0; z-index: 9000;
+    width: 100vw !important; height: 100dvh !important; max-width: none;
+    border-radius: 0; border: none;
+  }
+  #bgCanvas { z-index: 0; }
+  #glCanvas { z-index: 1; }
+  #uiCanvas { z-index: 2; pointer-events: auto; }
+  /* Awaiting remote-sync for a ?match= reload — hide the default board
+     so the user doesn't see one frame of the wrong state before the
+     remote row applies. The top-bar HUD sits ABOVE the canvases via
+     z-index; hiding canvases keeps the loading message readable. */
+  #canvasWrap.mp-loading #bgCanvas,
+  #canvasWrap.mp-loading #glCanvas,
+  #canvasWrap.mp-loading #uiCanvas { visibility: hidden; }
+  #canvasWrap.mp-loading::after {
+    content: "Loading match…";
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px; z-index: 3;
+  }
+  #instructions {
+    margin-top: 14px; color: var(--muted); font-size: 13px;
+    max-width: 720px; text-align: center; line-height: 1.6;
+  }
+  #message {
+    margin-top: 8px; color: var(--accent); font-size: 14px;
+    min-height: 20px; text-align: center;
+  }
+  .p1 { color: #ff7a2c; }
+  .p2 { color: #2cb1ff; }
+
+  /* Back-to-arcade link — production only (the arcade host serves this game). */
+  .arcade-back {
+    display: none;
+    position: fixed; top: 14px; left: 14px; z-index: 60;
+    font-size: 13px; line-height: 1; text-decoration: none;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 14px; background: rgba(20, 20, 31, 0.7);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    transition: color 120ms, border-color 120ms;
+  }
+  body.production .arcade-back { display: inline-block; }
+  .arcade-back:hover { color: var(--fg); border-color: #6c8cff; }
+</style>
+</head>
+<body>
+
+<!-- Production detection runs as the FIRST thing inside <body> so the
+     production class is on body before any subsequent content paints.
+     Without this, the page paints with the dev layout (small board,
+     2rem padding, "— Playground" suffix visible) then JS at end of
+     body would swap to the production layout — visible flash. -->
+<script>
+  // This copy ships only as the public game, so always use the production layout.
+  document.body.classList.add('production');
+  document.documentElement.classList.add('production');
+  document.title = 'Fractal Checkers';
+</script>
+
+<a class="arcade-back" href="/">‹ Arcade</a>
+
+<header>
+  <!-- ".dev-suffix" wraps the dev-only suffix so the SAME file works
+       both as the deployed game (hidden by body.production CSS) and as
+       a local dev playground (visible). -->
+  <h1>Fractal Checkers<span class="dev-suffix"> — Playground</span></h1>
+  <div class="sub">Live build &amp; lab experiments share the same engine</div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn" data-tab="live">Live</button>
+  <button class="tab-btn" data-tab="lab">Lab</button>
+</nav>
+
+<main>
+  <!-- LAB-only top controls -->
+  <div id="controls" class="lab-only">
+    <button id="newGameBtn">New Game</button>
+    <button id="themeBtn" title="Cycle team color themes">Theme: Fire / Ice</button>
+    <button id="styleBtn" title="Cycle board visual style">Board: Grid</button>
+    <button id="motionBtn" title="Pick a random subset of pieces to animate; the rest freeze">Motion: All</button>
+    <button id="fsBtn" class="fs-btn" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+    <span id="turnIndicator">Player 1</span>
+  </div>
+
+  <!-- LIVE-only control row, sits ABOVE the board so New Game / share
+       link are reachable without scrolling past the playing surface. -->
+  <div id="liveBottom" class="live-only" style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;margin:8px auto 8px;max-width:780px;">
+    <button id="newGameBtnLive" style="background:linear-gradient(180deg,#2a2a3f,#1a1a2a);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 14px;font-size:14px;font-family:inherit;cursor:pointer;">New Game</button>
+    <button id="playWithFriendBtn" style="background:linear-gradient(180deg,#2a2a3f,#1a1a2a);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 14px;font-size:14px;font-family:inherit;cursor:pointer;">Play with a friend →</button>
+    <button id="fsBtnLive" class="fs-btn" type="button" title="Fullscreen" aria-label="Fullscreen" style="background:linear-gradient(180deg,#2a2a3f,#1a1a2a);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 12px;font-size:16px;font-family:inherit;cursor:pointer;">⛶</button>
+  </div>
+
+  <!-- Share panel — shown only when a match exists (?match=<uuid>).
+       The URL is the headline thing here: it's what the host actually
+       needs to send to the friend. Status line below it tells you whose
+       seat you're in and whether the friend has joined yet. -->
+  <div id="mpSharePanel" class="live-only" style="display:none;max-width:720px;margin:0 auto 14px;padding:10px 14px;background:rgba(108,140,255,0.06);border:1px solid rgba(108,140,255,0.22);border-radius:8px;">
+    <div id="mpShareTitle" style="font-size:11px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">Send this link to your friend</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="mpShareUrl" type="text" readonly style="flex:1;min-width:0;background:rgba(0,0,0,0.35);border:1px solid var(--line);border-radius:4px;color:var(--fg);font:inherit;font-size:13px;font-family:'SF Mono',Consolas,monospace;padding:7px 10px;" />
+      <button id="mpCopyBtn" style="background:linear-gradient(180deg,#6c8cff,#5070d0);color:#fff;border:none;border-radius:4px;padding:8px 14px;font-size:13px;font-family:inherit;cursor:pointer;font-weight:500;white-space:nowrap;">Copy link</button>
+      <button id="mpLeaveBtn" style="background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-size:12px;font-family:inherit;cursor:pointer;" title="Leave this match (you can rejoin from the same URL)">×</button>
+    </div>
+    <div id="mpShareStatus" style="font-size:12px;color:var(--muted);margin-top:7px;line-height:1.4;">Waiting for your friend to open this link…</div>
+  </div>
+
+  <!-- Game frame: canvas covers a top header strip + board area. The
+       HTML top-bar overlay (live-only) sits inside canvasWrap above the
+       canvases via z-index; captured-piece fractals render IN the
+       canvas behind that strip, in a slot zone below the HTML row. -->
+  <div class="game-frame">
+    <div id="canvasWrap">
+      <canvas id="bgCanvas"></canvas>
+      <canvas id="glCanvas"></canvas>
+      <canvas id="uiCanvas"></canvas>
+
+      <div class="top-bar live-only">
+        <input class="player-name pinfo-name-p1" data-player="0" type="text" maxlength="20" />
+        <span class="vs-sep">vs</span>
+        <input class="player-name pinfo-name-p2" data-player="1" type="text" maxlength="20" />
+        <div class="count" data-count="0"><span class="count-num">12</span><span class="count-suffix">left</span></div>
+        <div class="count" data-count="1"><span class="count-num">12</span><span class="count-suffix">left</span></div>
+        <div class="captured-zone" data-zone="0"></div>
+        <div class="captured-zone" data-zone="1"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="message"></div>
+  <p id="instructions" class="lab-only"><strong>Lab.</strong> All experimental variants are on the Board cycle. Spheres, board-style picker, Motion subset toggle. Use this tab to iterate without losing the live setup. <a href="/arcade/checkers" style="color:var(--accent2)">Stable build →</a></p>
+</main>
+
+<script>
+"use strict";
+
+// ============================================================
+// CONFIG + visual presets (same as index.html — proven sharp)
+// ============================================================
+const CONFIG = {
+  hoverZoomMax: 6.0,
+  hoverZoomDefault: 1.0,
+  capturePulseSeconds: 1.4,
+  kingRingColor: '#ffd24a',
+};
+
+const F_JULIA = 0, F_NEWTON3 = 1, F_NEWTON4 = 2, F_BURNINGSHIP = 3,
+      F_MANDELBROT = 4, F_PHOENIX = 5, F_NOVA = 6;
+const C_ESCAPE = 0, C_TRAP = 1, C_TRAP_ESCAPE = 2, C_DE_GLOW = 3,
+      C_NORMAL_3D = 4, C_NEWTON_BAS = 5, C_BANDS = 6, C_PICKOVER = 7;
+const T_POINT = 0, T_CIRCLE = 1, T_PICKOVER = 2;
+const PAL_WARM = 0, PAL_COOL = 1, PAL_ACID = 2;
+
+// Cap render DPR. The fractal shader cost scales with pixel count, and
+// every additional DPR step multiplies it for 3 shader passes per frame.
+// 2 keeps fractals crisp on retina while halving GPU work vs the prior 3.
+const MAX_DPR = 2;
+const FORCED_SSAA = 1;
+const MAX_PIECES = 64;
+
+// Palettes restored to the lab2 choices Moti validated:
+//   bands  → COOL (cool topographic stripes)
+//   stalks → ACID (vivid radial spokes)
+//   nova   → ACID (warm-orange shifting tiles)
+// Player distinction comes from the fractal TYPE (bands vs stalks look
+// completely different) plus the soft player tint multiplier in the shader.
+const PRESETS = {
+  bands: {
+    fractal: F_MANDELBROT, coloring: C_BANDS, palette: PAL_COOL,
+    p: { zoomCx: -0.745, zoomCy: 0.113, zoomScale: 0.012, trapScale: 4.0,
+         maxIter: 320 },
+  },
+  stalks: {
+    fractal: F_JULIA, coloring: C_PICKOVER, palette: PAL_ACID,
+    p: { jCx: -0.4, jCy: 0.6, trapShape: T_PICKOVER, trapScale: 5.0,
+         viewScale: 0.55, maxIter: 180 },
+  },
+  nova: {
+    fractal: F_NOVA, coloring: C_NEWTON_BAS, palette: PAL_ACID,
+    p: { maxIter: 64, relax: 1.0 },
+  },
+};
+
+function presetKeyForPiece(piece, state) {
+  // Selection is now indicated by the additive halo in drawBoard, NOT by
+  // swapping the selected piece into a different fractal preset. Routing
+  // the selected piece into 'nova' caused every other piece in its team's
+  // group to shift one position in the shader's uniform array, which
+  // changed their hash11(i)-derived seed and visibly mutated their
+  // fractal shapes the moment you clicked. Selection now leaves the
+  // groups untouched → other pieces stay stable.
+  return piece.player === 0 ? 'bands' : 'stalks';
+}
+
+// ============================================================
+// CHECKERS GAME
+// Board: 8×8, indexed 0..63 row-major (idx = r*8 + c).
+// Pieces only ever sit on dark squares where (r + c) is odd.
+// Player 0 starts on rows 0,1,2 and moves DOWN (r increasing).
+// Player 1 starts on rows 5,6,7 and moves UP (r decreasing).
+// ============================================================
+function inBoard(r, c) { return r >= 0 && r < 8 && c >= 0 && c < 8; }
+function isPlaySquare(r, c) { return inBoard(r, c) && ((r + c) & 1) === 1; }
+
+const checkersGame = {
+  key: 'checkers',
+  name: 'Fractal Checkers',
+  pointCount: 64,
+  init(state) {
+    state.board = new Array(64).fill(null);    // null | 0 | 1
+    state.kings = new Array(64).fill(false);
+    // Stable per-piece identifier — survives moves/captures so each
+    // piece's fractal seed and motion-freeze membership don't reshuffle
+    // every time the board changes. Initial value = the piece's starting
+    // board index. Maintained by _executeMove: transferred from src to
+    // dest on a move, captured pieces keep their ID in state.captured.
+    // Only reset on a new game (when init runs).
+    state.pieceIds = new Array(64).fill(null);
+    // Captured pieces per player (the player who LOST them). Pushed
+    // to in _executeMove. Each entry is { wasKing, stableId }. Rendered as
+    // fractal pieces in the top-bar slot zone via visiblePieces().
+    state.captured = [[], []];
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 8; c++) if (isPlaySquare(r, c)) {
+        const i = r*8 + c;
+        state.board[i] = 0;
+        state.pieceIds[i] = i;
+      }
+    }
+    for (let r = 5; r < 8; r++) {
+      for (let c = 0; c < 8; c++) if (isPlaySquare(r, c)) {
+        const i = r*8 + c;
+        state.board[i] = 1;
+        state.pieceIds[i] = i;
+      }
+    }
+    state.selected = null;
+    state.mustJumpFrom = null;
+    state.turn = 0;
+    state.winner = null;
+    state.message = 'Player 1 (warm) to move.';
+  },
+
+  // Return legal moves from a square as [{dest, capture?}]
+  legalMovesFrom(state, fromIdx) {
+    const player = state.board[fromIdx];
+    if (player === null) return [];
+    const king = state.kings[fromIdx];
+    const fr = Math.floor(fromIdx / 8), fc = fromIdx % 8;
+    const dirs = [];
+    if (king || player === 0) dirs.push([1, -1], [1, 1]);
+    if (king || player === 1) dirs.push([-1, -1], [-1, 1]);
+
+    const moves = [];
+    for (const [dr, dc] of dirs) {
+      const tr = fr + dr, tc = fc + dc;
+      if (!inBoard(tr, tc)) continue;
+      const tIdx = tr * 8 + tc;
+      if (state.board[tIdx] === null) {
+        moves.push({ dest: tIdx });
+      } else if (state.board[tIdx] === 1 - player) {
+        const jr = fr + 2*dr, jc = fc + 2*dc;
+        if (!inBoard(jr, jc)) continue;
+        const jIdx = jr * 8 + jc;
+        if (state.board[jIdx] === null) moves.push({ dest: jIdx, capture: tIdx });
+      }
+    }
+    return moves;
+  },
+
+  // Player must continue jumping while jumps are available from the same piece.
+  jumpsAvailableFor(state, fromIdx) {
+    return this.legalMovesFrom(state, fromIdx).filter(m => m.capture !== undefined);
+  },
+
+  // Across all of player's pieces, does ANY jump exist? (We don't force jumps
+  // by default, but expose this for the AI/heuristic if needed later.)
+  anyJumpForPlayer(state, player) {
+    for (let i = 0; i < 64; i++) {
+      if (state.board[i] === player && this.jumpsAvailableFor(state, i).length > 0) return true;
+    }
+    return false;
+  },
+
+  onClick(state, idx) {
+    if (state.winner !== null) return;
+    if (!isPlaySquare(Math.floor(idx / 8), idx % 8)) {
+      state.message = "Light squares are off-limits.";
+      return;
+    }
+    const turn = state.turn;
+    const b = state.board;
+
+    // Chain-jump phase: a piece just captured and another jump is possible.
+    if (state.mustJumpFrom !== null) {
+      // Force the next click to be a jump destination from mustJumpFrom.
+      const moves = this.jumpsAvailableFor(state, state.mustJumpFrom);
+      const move = moves.find(m => m.dest === idx);
+      if (!move) {
+        state.message = `Continue jumping from the highlighted piece.`;
+        return;
+      }
+      this._executeMove(state, state.mustJumpFrom, move);
+      // Check for further jumps from the new position.
+      const more = this.jumpsAvailableFor(state, idx);
+      if (more.length > 0) {
+        state.mustJumpFrom = idx;
+        state.selected = idx;
+        state.message = `Chain jump available — pick a destination.`;
+        return;
+      }
+      // Turn ends.
+      state.mustJumpFrom = null;
+      state.selected = null;
+      state.turn = 1 - turn;
+      this.checkWin(state);
+      if (state.winner === null) state.message = `Player ${state.turn + 1}'s turn.`;
+      return;
+    }
+
+    // Normal selection phase.
+    if (state.selected === null) {
+      if (b[idx] !== turn) { state.message = "Select your own piece."; return; }
+      state.selected = idx;
+      state.message = "Pick a destination.";
+      return;
+    }
+    if (state.selected === idx) { state.selected = null; state.message = "Deselected."; return; }
+    if (b[idx] === turn) { state.selected = idx; state.message = "Reselected."; return; }
+
+    const moves = this.legalMovesFrom(state, state.selected);
+    const move = moves.find(m => m.dest === idx);
+    if (!move) { state.message = "That move isn't legal."; return; }
+
+    const wasCapture = move.capture !== undefined;
+    this._executeMove(state, state.selected, move);
+
+    // Chain jumps continue without ending turn.
+    if (wasCapture) {
+      const more = this.jumpsAvailableFor(state, idx);
+      if (more.length > 0) {
+        state.mustJumpFrom = idx;
+        state.selected = idx;
+        state.message = `Chain jump available — pick a destination.`;
+        return;
+      }
+    }
+    state.selected = null;
+    state.turn = 1 - turn;
+    this.checkWin(state);
+    if (state.winner === null) state.message = `Player ${state.turn + 1}'s turn.`;
+  },
+
+  _executeMove(state, fromIdx, move) {
+    const turn = state.turn;
+    const src = canvasCoords(state, fromIdx);
+    const dst = canvasCoords(state, move.dest);
+    const isJump = move.capture !== undefined;
+
+    // Capture metadata BEFORE mutating, so visiblePieces can keep the
+    // captured piece visible until the jumper is overhead.
+    let capturedPlayer = null, capturedKing = false, captureXY = null;
+    let capturedStableId = null;
+    if (isJump) {
+      capturedPlayer = state.board[move.capture];
+      capturedKing   = state.kings[move.capture];
+      capturedStableId = state.pieceIds ? state.pieceIds[move.capture] : null;
+      const c = canvasCoords(state, move.capture);
+      captureXY = { x: c.x, y: c.y };
+    }
+
+    state.board[move.dest] = turn;
+    state.kings[move.dest] = state.kings[fromIdx];
+    state.board[fromIdx] = null;
+    state.kings[fromIdx] = false;
+    if (state.pieceIds) {
+      state.pieceIds[move.dest] = state.pieceIds[fromIdx];
+      state.pieceIds[fromIdx] = null;
+    }
+    if (isJump) {
+      // Persistent record so visiblePieces can keep rendering the
+      // captured piece as a fractal in the top-bar slot zone after
+      // the jump animation finishes. stableId carries the piece's
+      // original fractal seed so it doesn't morph in the slot.
+      state.captured[capturedPlayer].push({ wasKing: capturedKing, stableId: capturedStableId });
+      // Mutate board now so chain-jump checks see correct state — but
+      // visiblePieces will re-add the captured piece as a synthetic until
+      // the jumper passes over it (t < 0.5 of the tween).
+      state.board[move.capture] = null;
+      state.kings[move.capture] = false;
+      if (state.pieceIds) state.pieceIds[move.capture] = null;
+    }
+    const destR = Math.floor(move.dest / 8);
+    if ((turn === 0 && destR === 7) || (turn === 1 && destR === 0)) {
+      state.kings[move.dest] = true;
+    }
+
+    state.moveAnim = {
+      destIdx: move.dest,
+      fromX: src.x, fromY: src.y,
+      toX:   dst.x, toY:   dst.y,
+      startTime: performance.now(),
+      // Longer, gentler — non-captures feel like the piece is floating
+      // to its new square, not snapping. Jumps still take a touch longer
+      // because the arc has to read.
+      duration: isJump ? 620 : 560,
+      isJump,
+      captureIdx:    isJump ? move.capture     : null,
+      captureXY:     captureXY,
+      capturedPlayer,
+      capturedKing,
+      capturedStableId,
+      wispsFired:    false,
+    };
+  },
+
+  legalDestinations(state) {
+    if (state.winner !== null) return [];
+    if (state.mustJumpFrom !== null) {
+      return this.jumpsAvailableFor(state, state.mustJumpFrom).map(m => m.dest);
+    }
+    if (state.selected === null) return [];
+    return this.legalMovesFrom(state, state.selected).map(m => m.dest);
+  },
+
+  checkWin(state) {
+    const p0 = state.board.filter(p => p === 0).length;
+    const p1 = state.board.filter(p => p === 1).length;
+    if (p0 === 0) { state.winner = 1; state.message = "Player 2 wins (all pieces captured)!"; return; }
+    if (p1 === 0) { state.winner = 0; state.message = "Player 1 wins (all pieces captured)!"; return; }
+    // Stalemate check: current player has no legal moves at all.
+    let anyMove = false;
+    for (let i = 0; i < 64; i++) {
+      if (state.board[i] === state.turn && this.legalMovesFrom(state, i).length > 0) {
+        anyMove = true; break;
+      }
+    }
+    if (!anyMove) {
+      state.winner = 1 - state.turn;
+      state.message = `Player ${state.turn + 1} has no legal moves — Player ${(1 - state.turn) + 1} wins!`;
+    }
+  },
+
+  visiblePieces(state) {
+    const out = [];
+    const r = pieceRadius(state);
+
+    // Resolve current tween. Three time-driven events during a jump:
+    //   t = 0.5  — jumper is overhead → captured piece's wisps fire, the
+    //              captured synthetic stops rendering.
+    //   t = 1.0  — jumper lands → landing ripple pushed, tween cleared.
+    let tween = null;
+    if (state.moveAnim) {
+      const elapsed = performance.now() - state.moveAnim.startTime;
+      if (elapsed >= state.moveAnim.duration) {
+        const player = state.board[state.moveAnim.destIdx];
+        // Soft additive landing glow — no ring outline. Puffs out and
+        // fades. Replaces the previous "expanding ring" ripple which
+        // read as an isolated dotted border.
+        state.ripples.push({
+          x: state.moveAnim.toX,
+          y: state.moveAnim.toY,
+          tint: player === 0 ? '255, 180, 90' : '120, 200, 255',
+          born: performance.now(),
+          duration: 420,
+        });
+        if (state.moveAnim.isJump && !state.moveAnim.wispsFired
+            && state.moveAnim.captureXY) {
+          addCapture(state, state.moveAnim.captureXY.x,
+                            state.moveAnim.captureXY.y,
+                            state.moveAnim.capturedPlayer);
+        }
+        state.moveAnim = null;
+      } else {
+        const t = elapsed / state.moveAnim.duration;
+        // smoothstep — ease-in-out. Slower at both ends, smooth glide
+        // through the middle. Less harsh than ease-out for a non-jump.
+        const eased = t * t * (3 - 2 * t);
+        tween = { ...state.moveAnim, t, eased };
+        // Fire capture wisps at the midpoint — jumper is directly over
+        // the captured piece. Set the flag on the real moveAnim so we
+        // don't fire again on the next frame.
+        if (tween.isJump && t >= 0.5 && !state.moveAnim.wispsFired
+            && tween.captureXY) {
+          addCapture(state, tween.captureXY.x, tween.captureXY.y,
+                            tween.capturedPlayer);
+          state.moveAnim.wispsFired = true;
+        }
+      }
+    }
+
+    const now = performance.now();
+    for (let i = 0; i < 64; i++) {
+      if (state.board[i] === null) continue;
+      const p = canvasCoords(state, i);
+      // tileX/Y = where the piece is rooted on the board (post-tween,
+      // pre-arc, pre-hover). Used for the anti-grav floor spot.
+      // x/y = visual position the piece actually renders at (with the
+      // jump arc and hover oscillation applied).
+      let tileX = p.x, tileY = p.y;
+      if (tween && i === tween.destIdx) {
+        tileX = tween.fromX + (tween.toX - tween.fromX) * tween.eased;
+        tileY = tween.fromY + (tween.toY - tween.fromY) * tween.eased;
+      }
+      let x = tileX, y = tileY;
+      const isTweenTarget = tween && i === tween.destIdx;
+      // Jump arc — y dip during a jump tween. INTENTIONAL animation
+      // when a piece is captured-jumping; not a per-frame oscillation.
+      if (isTweenTarget && tween.isJump) {
+        y -= Math.sin(Math.PI * tween.t) * r * 0.70;
+      }
+      // NO per-frame bob. Pieces sit centered in their square at all
+      // times. Motion = fractal animation inside the disc (shader-
+      // side), never positional movement. The previous "hover
+      // oscillation" (sin bob in y) has been removed — it confused
+      // the motion model and made frozen vs active pieces look
+      // half-frozen.
+
+      const isKing = state.kings[i];
+      const stableId = (state.pieceIds && state.pieceIds[i] !== null && state.pieceIds[i] !== undefined)
+        ? state.pieceIds[i]
+        : i;
+      out.push({
+        x, y, tileX, tileY, idx: i, stableId,
+        player: state.board[i],
+        king: isKing,
+        radius: isKing ? r * 1.08 : r,
+        moving: isTweenTarget,
+      });
+    }
+
+    // Synthetic captured piece — keeps the victim visible until the
+    // jumper passes over it. Captured-player's piece stays rendered
+    // (full alpha) for t < 0.5; after the wisps fire it stops rendering
+    // and the wisp animation takes over.
+    if (tween && tween.isJump && tween.t < 0.5 && tween.capturedPlayer !== null) {
+      out.push({
+        x: tween.captureXY.x,
+        y: tween.captureXY.y,
+        tileX: tween.captureXY.x,
+        tileY: tween.captureXY.y,
+        idx: -1,           // negative idx → not a real board piece
+        stableId: tween.capturedStableId ?? -1,
+        player: tween.capturedPlayer,
+        king: tween.capturedKing,
+        radius: tween.capturedKing ? r * 1.08 : r,
+      });
+    }
+    // Persistent captured-piece fractals in the top-bar slot zone.
+    // Same render path as live pieces — just a smaller radius. The
+    // jump-animation synthetic above hides this one during t < 0.5 by
+    // virtue of overlapping at higher alpha; once wisps fire and the
+    // tween ends, only this persistent one remains, sitting in its slot.
+    for (let player = 0; player < 2; player++) {
+      const captured = state.captured[player] || [];
+      const lastIndex = captured.length - 1;
+      // During the brief window where moveAnim still has captureXY
+      // and t < 0.5, suppress the SLOT render of the most-recent
+      // captured piece so it appears to "fly in" from the board
+      // square to the slot only after the wisp moment. (Cheap
+      // approximation: just hide the newest one while the tween
+      // is mid-flight on the capturing side.)
+      const suppressNewest = tween && tween.isJump && tween.t < 0.5
+                          && tween.capturedPlayer === player;
+      for (let k = 0; k < captured.length; k++) {
+        if (suppressNewest && k === lastIndex) continue;
+        const pos = capturedSlotPos(player, k);
+        if (!pos) continue;  // slot zone not laid out (Lab tab, pre-resize)
+        const slotStableId = (captured[k].stableId !== null && captured[k].stableId !== undefined)
+          ? captured[k].stableId
+          : (1000 + player * 100 + k);  // fallback for entries without an ID (legacy / remote-sync)
+        out.push({
+          x: pos.x, y: pos.y, tileX: pos.x, tileY: pos.y,
+          idx: -100 - (player * 32 + k),  // unique negative; out of board range
+          stableId: slotStableId,
+          player,
+          king: captured[k].wasKing,
+          radius: pos.radius * (captured[k].wasKing ? 1.06 : 1.0),
+          moving: false,
+        });
+      }
+    }
+    return out;
+  },
+};
+
+// ============================================================
+// SHARED STATE + LAYOUT
+// ============================================================
+const state = {
+  turn: 0,
+  board: [],
+  kings: [],
+  selected: null,
+  mustJumpFrom: null,
+  winner: null,
+  message: '',
+  captures: [],
+  captured: [[], []],
+  hover: null,
+  zoom: 1.0,
+  zoomTarget: 1.0,
+  canvasSize: { w: 720, h: 720 },
+  dpr: 3,
+  // Clamp at 0/1 — Solar/Cosmic theme (index 2) has been removed.
+  themeIdx: Math.min(parseInt(localStorage.getItem('checkers.themeIdx') ?? '0', 10) || 0, 1),
+  // Default Grid (index 2) for fresh visitors. The `|| <fallback>` form
+  // used elsewhere mishandles a stored "0" (treats it as falsy), so we
+  // discriminate null vs parsed-number explicitly.
+  boardStyleIdx: (function () {
+    const raw = localStorage.getItem('checkers.boardStyleIdx');
+    if (raw === null) return 2;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? Math.min(Math.max(n, 0), 28) : 2;
+  })(),
+  motionCountIdx: Math.min(parseInt(localStorage.getItem('checkers.motionCountIdx') ?? '3', 10) || 3, 3),
+  // Set of piece-array indices that should animate. Empty initially;
+  // first rerollMotionActive() call (or default "All") fills it.
+  motionActiveSet: null,
+  // Active move tween. Set when _executeMove fires; visiblePieces uses it
+  // to interpolate the moved piece's position over `duration` ms before
+  // letting it snap to its final square. Cleared when the tween completes.
+  moveAnim: null,
+  // Landing ripples — pushed when a move tween finishes. Soft expanding
+  // ring at the landing square, draws over the board to give a tactile
+  // arrival affordance without stamping a hard outline.
+  ripples: [],
+};
+
+const THEMES = [
+  { label: 'Fire / Ice',     p1: 'Fire',  p2: 'Ice'    },
+  { label: 'Acid / Violet',  p1: 'Acid',  p2: 'Violet' },
+];
+
+// Bright tints per theme for the anti-grav floor spots.
+const TEAM_GLOWS = [
+  { p0: '255, 158, 31', p1: '38, 186, 255' },   // Fire / Ice
+  { p0: '170, 255, 30', p1: '230, 50, 215' },   // Acid / Violet
+];
+
+// Visual treatments for the board itself. The spheres render
+// identically across all styles; only the bg-canvas chrome changes.
+// Cycle via the "Board" button. The last three (Carved/Plinth/Vapor)
+// are depth-focused experiments — strong inset wells, raised platforms
+// with drop shadows, and an atmospheric fog layer.
+const BOARD_STYLES = [
+  { id: 'slab',         label: 'Slab'    },  // Raised tiles with bevels + inset wells
+  { id: 'void',         label: 'Void'    },  // Deep space — no tiles, just faint position markers
+  { id: 'grid',         label: 'Grid'    },  // Holographic — thin glowing rectangle outlines
+  { id: 'stars',        label: 'Stars'   },  // Constellation — dots at tile centers + connecting lines
+  { id: 'carved',       label: 'Carved'  },  // DEPTH: deep cup wells, sphere sits in a pit
+  { id: 'plinth',       label: 'Plinth'  },  // DEPTH: raised platforms w/ drop shadow
+  { id: 'plinth-glass', label: 'Glass'   },  // DEPTH: plinth + polished reflective top hint
+  { id: 'plinth-tall',  label: 'Tall'    },  // DEPTH: plinth with more dramatic elevation
+  { id: 'vapor',        label: 'Vapor'   },  // DEPTH: subtle swirly fog blanket spheres sit in
+  { id: 'vapor-dense',  label: 'Dense'   },  // DEPTH: vapor with heavy cloud cover
+  { id: 'vapor-bloom',  label: 'Bloom'   },  // DEPTH: vapor that accumulates at board edges
+  { id: 'vapor-blanket',label: 'Blanket' },  // DEPTH: thick fog, no gaps — board reads via grid lines
+  { id: 'vapor-thick',  label: 'Thick'   },  // DEPTH: very heavy fog, board barely visible underneath
+  { id: 'vapor-drift',  label: 'Drift'   },  // DEPTH: thick blanket + slow visible swirl, Bloom-like edges
+  // Star-treated demarcation: takes the twinkle aesthetic from the
+  // original Stars style and uses it as SQUARE BORDERS, not as
+  // tile-center markers. Pieces still float freely.
+  { id: 'stars-corner',        label: 'Stars-C' },  // twinkling stars at every grid corner
+  { id: 'stars-edge',          label: 'Stars-E' },  // beaded stars along every square edge
+  { id: 'stars-constellation', label: 'Constell.' },// corner stars + faint connecting lines
+  { id: 'stars-scatter',       label: 'Stars-S' },  // irregularly scattered stars along edges
+  { id: 'stars-nebula',        label: 'Nebula'  },  // soft pulsing nebula at corners (no points)
+  // Five more vapor variants exploring different territory: stretched
+  // streaks, aurora coloring, ember particles, contour-band veins,
+  // and dense directional smoke.
+  { id: 'vapor-streaks',       label: 'Streaks' },  // anisotropic horizontal fog
+  { id: 'vapor-aurora',        label: 'Aurora'  },  // color shifts teal→magenta with density
+  { id: 'vapor-embers',        label: 'Embers'  },  // small bright high-contrast particles
+  { id: 'vapor-veins',         label: 'Veins'   },  // contour-band rendering (glowing curves)
+  { id: 'vapor-smoke',         label: 'Smoke'   },  // heavy dense fog, strong warp
+  // Minimalist void additions — pieces float on the same deep-space
+  // background, each variant shows the grid using partial line
+  // segments instead of a full grid.
+  { id: 'void-dashes',  label: 'Dashes'  },  // full grid drawn as dashed lines
+  { id: 'void-corners', label: 'Corners' },  // only the ends of each grid edge (corner pieces)
+  { id: 'void-centers', label: 'Centers' },  // only the middle 40% of each grid edge
+  { id: 'void-dark',    label: 'Dark'    },  // only playable (dark) squares outlined
+  { id: 'void-rows',    label: 'Rows'    },  // only horizontal grid lines
+];
+
+// Motion counts — cycled by the "Motion" button. The standard 12v12
+// setup is preserved; the button picks N random pieces to keep
+// ANIMATED and freezes the rest on per-piece-unique fractal frames.
+// Each click cycles count AND re-rolls which pieces are in the
+// active set. The shader receives a per-piece "frozen" flag and
+// substitutes a seed-derived constant for uTime → frozen pieces stay
+// uniquely textured but completely still.
+const MOTION_COUNTS = [
+  { count: 3,  label: '3'   },
+  { count: 6,  label: '6'   },
+  { count: 12, label: '12'  },
+  { count: 24, label: 'All' },
+];
+
+// Board geometry — recomputed on resize. Returns center pixel coords for
+// any square index 0..63.
+const boardGeom = { sq: 0, ox: 0, oy: 0 };
+
+// Top header zone reserved within the canvas. Header height is
+// dynamic — 0 in Lab tab (no top bar; canvas is a pure board) and
+// 56px in Live tab (one compact row with inline captured-piece
+// slot zones flanking the centered vs-title). The slot zones are
+// transparent HTML placeholders inside .top-bar — JS reads their
+// bounding rects each resize so the WebGL captured-fractal pass
+// renders into the exact gap between the name+count chips and
+// the vs-title.
+function getHeaderH() {
+  return document.body.classList.contains('tab-live') ? 88 : 0;
+}
+const CAPTURED_SLOTS_PER_ROW = 12;
+// Rects are { x, y, w, h } in CSS pixels relative to canvasWrap.
+// Both null until updateCapturedZoneRects() runs (after resize).
+const capturedZoneRects = [null, null];
+
+function updateCapturedZoneRects() {
+  const wrap = document.getElementById('canvasWrap');
+  if (!wrap) { capturedZoneRects[0] = capturedZoneRects[1] = null; return; }
+  const wrapRect = wrap.getBoundingClientRect();
+  for (let p = 0; p < 2; p++) {
+    const el = wrap.querySelector(`.captured-zone[data-zone="${p}"]`);
+    if (!el || el.offsetParent === null) { capturedZoneRects[p] = null; continue; }
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) { capturedZoneRects[p] = null; continue; }
+    capturedZoneRects[p] = {
+      x: r.left - wrapRect.left,
+      y: r.top - wrapRect.top,
+      w: r.width,
+      h: r.height,
+    };
+  }
+}
+
+function recomputeBoardGeom() {
+  const w = state.canvasSize.w, h = state.canvasSize.h;
+  const headerH = getHeaderH();
+  const playH = Math.max(0, h - headerH);
+  const margin = Math.min(w, playH) * 0.04;
+  boardGeom.sq = (Math.min(w, playH) - 2 * margin) / 8;
+  boardGeom.ox = (w - boardGeom.sq * 8) / 2;
+  boardGeom.oy = headerH + (playH - boardGeom.sq * 8) / 2;
+}
+
+// Where a captured piece renders inside its top-bar slot zone.
+// Player 0's slots fill their zone (left-of-vs-title) left-to-right;
+// Player 1's fill their zone (right-of-vs-title) right-to-left so the
+// most recently captured piece always sits adjacent to the title.
+// Returns null if the slot zone isn't laid out yet (e.g. Lab tab,
+// pre-resize) so the caller can skip the render entirely.
+function capturedSlotPos(player, index) {
+  const zone = capturedZoneRects[player];
+  if (!zone) return null;
+  const slotW = zone.w / CAPTURED_SLOTS_PER_ROW;
+  const slot = Math.min(index, CAPTURED_SLOTS_PER_ROW - 1);
+  const x = player === 0
+    ? zone.x + (slot + 0.5) * slotW
+    : zone.x + zone.w - (slot + 0.5) * slotW;
+  const y = zone.y + zone.h / 2;
+  const radius = Math.min(slotW, zone.h) * 0.42;
+  return { x, y, radius };
+}
+
+function canvasCoords(stateUnused, idx) {
+  const r = Math.floor(idx / 8), c = idx % 8;
+  return {
+    x: boardGeom.ox + (c + 0.5) * boardGeom.sq,
+    y: boardGeom.oy + (r + 0.5) * boardGeom.sq,
+  };
+}
+
+// Offscreen canvas for Vapor's noise-driven fog field. Generated at
+// 128x128 then upscaled to the board with smoothing.
+const VAPOR_RES = 128;
+let vaporOffscreen = null, vaporOffscreenCtx = null, vaporImageData = null;
+function ensureVaporOffscreen() {
+  if (vaporOffscreen) return;
+  vaporOffscreen = document.createElement('canvas');
+  vaporOffscreen.width = VAPOR_RES;
+  vaporOffscreen.height = VAPOR_RES;
+  vaporOffscreenCtx = vaporOffscreen.getContext('2d');
+  vaporImageData = vaporOffscreenCtx.createImageData(VAPOR_RES, VAPOR_RES);
+}
+
+// Value-noise lookup table — a 256x256 random grid sampled with
+// bilinear smoothstep interpolation. Used by Vapor for fBm + domain
+// warping. CRITICAL: this is NOT sin/cos products — those create
+// axis-aligned grid artifacts (horizontal stripes) and low-frequency
+// envelopes (darker middle / brighter corners). Value noise is
+// non-periodic and isotropic → genuine organic variation.
+const NOISE_TABLE_DIM = 256;
+const NOISE_MASK = NOISE_TABLE_DIM - 1;     // bitwise AND for wrap
+let noiseTable = null;
+function ensureNoiseTable() {
+  if (noiseTable) return;
+  noiseTable = new Float32Array(NOISE_TABLE_DIM * NOISE_TABLE_DIM);
+  for (let i = 0; i < noiseTable.length; i++) noiseTable[i] = Math.random();
+}
+function valueNoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const xi0 = xi & NOISE_MASK, yi0 = yi & NOISE_MASK;
+  const xi1 = (xi + 1) & NOISE_MASK, yi1 = (yi + 1) & NOISE_MASK;
+  const a = noiseTable[yi0 * NOISE_TABLE_DIM + xi0];
+  const b = noiseTable[yi0 * NOISE_TABLE_DIM + xi1];
+  const c = noiseTable[yi1 * NOISE_TABLE_DIM + xi0];
+  const d = noiseTable[yi1 * NOISE_TABLE_DIM + xi1];
+  const tx = xf * xf * (3 - 2 * xf);          // smoothstep
+  const ty = yf * yf * (3 - 2 * yf);
+  const ab = a + (b - a) * tx;
+  const cd = c + (d - c) * tx;
+  return ab + (cd - ab) * ty;                 // bilinear
+}
+
+// Shared renderer for all vapor variants. The board scaffolding is
+// identical across variants; the differences live in `opts`:
+//   threshold/cap  → alpha shaping (controls how much fog is visible)
+//   baseFreq       → noise feature size (smaller = larger swirls)
+//   warpStrength   → domain-warp intensity (higher = more curl)
+//   peakBoost      → how strongly fog peaks get bright/white
+//   tileDarkTint   → fog color multiplier over dark squares (the
+//                    "tile-aware coloring" cue — fog over dark
+//                    appears dimmer than fog over light)
+//   edgeBoost      → optional density bump near board edges
+//   colorLight/Dark → optional per-tile color overrides (for the
+//                     warm/cool Bloom variant, etc.)
+function renderVaporStyle(bgCtx, ox, oy, sq, pieces, now, opts) {
+  const {
+    threshold, cap, baseFreq, warpStrength, peakBoost,
+    tileDarkTint, edgeBoost = 0,
+    alphaFloor = 0,                     // baseline alpha — fog never thinner than this
+    timeMul = 1.0,                      // drift speed; <1.0 = slower
+    xFreqMul = 1.0, yFreqMul = 1.0,     // anisotropic sampling — for Streaks
+    contourBand = null,                 // [lo, hi] — render only within this density band (Veins)
+    auroraMode = false,                 // override base/peak colors with density-aware hue
+    colorBase = [170, 195, 240],
+    colorPeak = [75, 55, 15],
+    pieceBumpAlpha = 0.18,
+  } = opts;
+
+  // ---- 1. Board construction ----
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const dark = ((r + c) & 1) === 1;
+      const tlx = ox + c * sq, tly = oy + r * sq;
+      bgCtx.fillStyle = dark ? 'rgb(14, 11, 22)' : 'rgb(32, 26, 46)';
+      bgCtx.fillRect(tlx, tly, sq, sq);
+    }
+  }
+  bgCtx.strokeStyle = 'rgba(140, 126, 180, 0.60)';
+  bgCtx.lineWidth = 1;
+  for (let i = 0; i <= 8; i++) {
+    bgCtx.beginPath();
+    bgCtx.moveTo(ox, oy + i * sq + 0.5);
+    bgCtx.lineTo(ox + sq * 8, oy + i * sq + 0.5);
+    bgCtx.stroke();
+    bgCtx.beginPath();
+    bgCtx.moveTo(ox + i * sq + 0.5, oy);
+    bgCtx.lineTo(ox + i * sq + 0.5, oy + sq * 8);
+    bgCtx.stroke();
+  }
+
+  // ---- 2. Fog field via value-noise fBm + domain warping ----
+  ensureNoiseTable();
+  ensureVaporOffscreen();
+  const t = now * 0.00030 * timeMul;
+  const data = vaporImageData.data;
+  const N = VAPOR_RES;
+  const [bR, bG, bB] = colorBase;
+  const [pR, pG, pB] = colorPeak;
+  for (let py = 0; py < N; py++) {
+    const v = py / N;
+    for (let px = 0; px < N; px++) {
+      const u = px / N;
+      // Domain warp.
+      const wx = (valueNoise(u * 3 + t * 0.4, v * 3 + 17) - 0.5);
+      const wy = (valueNoise(u * 3 + 43, v * 3 + t * 0.3) - 0.5);
+      // 3-octave fBm at warped position. xFreqMul/yFreqMul stretch
+      // the sample plane → Streaks variant uses (0.45, 1.4) to make
+      // features wider horizontally than vertically.
+      const fx = baseFreq * xFreqMul;
+      const fy = baseFreq * yFreqMul;
+      let n = 0;
+      n += valueNoise((u + wx * warpStrength)        * fx      + t * 0.15,
+                      (v + wy * warpStrength)        * fy      + t * 0.10) * 0.55;
+      n += valueNoise((u + wx * warpStrength * 0.5)  * fx * 2  - t * 0.20,
+                      (v + wy * warpStrength * 0.5)  * fy * 2  + t * 0.18) * 0.30;
+      n += valueNoise(u * fx * 4.6 + t * 0.25,
+                      v * fy * 4.6 - t * 0.22) * 0.15;
+      // Optional edge-aware density boost (Bloom variant uses this).
+      if (edgeBoost > 0) {
+        const edgeDist = Math.min(u, 1 - u, v, 1 - v);   // 0..0.5
+        const edgeFactor = Math.max(0, 1 - edgeDist * 3.2);
+        n += edgeFactor * edgeBoost;
+      }
+      // Alpha shape.
+      // contourBand path (Veins): render only where density is within
+      // a narrow band, fading out at the band edges. Creates curved
+      // glowing "lines" tracing iso-density curves of the noise field.
+      // Default path: threshold for gaps + cap for max brightness;
+      // alphaFloor > 0 disables gaps entirely (continuous blanket).
+      let a;
+      if (contourBand) {
+        const lo = contourBand[0], hi = contourBand[1];
+        if (n < lo || n > hi) {
+          a = 0;
+        } else {
+          const dist = Math.min(n - lo, hi - n);
+          a = Math.min(dist * 10, cap);          // sharp falloff at band edges
+        }
+      } else {
+        a = n < threshold ? 0 : (n - threshold) * 1.7;
+        if (a > cap) a = cap;
+        if (a < alphaFloor) a = alphaFloor;
+      }
+      const peak = n > 0.55 ? (n - 0.55) * peakBoost : 0;
+      const tc = (u * 8) | 0, tr = (v * 8) | 0;
+      const overDark = ((tr + tc) & 1) === 1;
+      const tileMul = overDark ? tileDarkTint : 1.0;
+      const i = (py * N + px) * 4;
+      if (auroraMode) {
+        // Aurora — hue swings with density. Low n → teal/cyan, mid →
+        // green/yellow, high → magenta. Saturated and additive so the
+        // light layers blend rather than wash.
+        const a1 = Math.min(1, Math.max(0, n));
+        const rA = 80  + a1 * 220;             //  80..300 → clamp to 255 below
+        const gA = 220 - Math.abs(a1 - 0.55) * 280;
+        const bA = 250 - a1 * 180;
+        data[i + 0] = Math.min(255, rA * tileMul) | 0;
+        data[i + 1] = Math.min(255, Math.max(40, gA) * tileMul) | 0;
+        data[i + 2] = Math.min(255, Math.max(60, bA) * tileMul) | 0;
+      } else {
+        data[i + 0] = (((bR + peak * pR) * tileMul) | 0);
+        data[i + 1] = (((bG + peak * pG) * tileMul) | 0);
+        data[i + 2] = (((bB + peak * pB) * tileMul) | 0);
+      }
+      data[i + 3] = (a * 255) | 0;
+    }
+  }
+  vaporOffscreenCtx.putImageData(vaporImageData, 0, 0);
+  bgCtx.save();
+  bgCtx.imageSmoothingEnabled = true;
+  bgCtx.imageSmoothingQuality = 'high';
+  bgCtx.globalCompositeOperation = 'lighter';
+  bgCtx.drawImage(vaporOffscreen, ox, oy, sq * 8, sq * 8);
+  bgCtx.restore();
+
+  // ---- 3. Piece-anchored density bump ----
+  if (pieces && pieces.length) {
+    bgCtx.save();
+    bgCtx.globalCompositeOperation = 'lighter';
+    for (const p of pieces) {
+      if (p.tileX == null) continue;
+      const cx = p.tileX, cy = p.tileY;
+      const r = sq * 0.95;
+      bgCtx.save();
+      bgCtx.translate(cx, cy);
+      bgCtx.scale(1.40, 0.60);
+      bgCtx.translate(-cx, -cy);
+      const bump = bgCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      bump.addColorStop(0,    `rgba(210, 225, 250, ${pieceBumpAlpha.toFixed(3)})`);
+      bump.addColorStop(0.55, `rgba(190, 210, 240, ${(pieceBumpAlpha * 0.4).toFixed(3)})`);
+      bump.addColorStop(1,    'rgba(170, 195, 235, 0)');
+      bgCtx.fillStyle = bump;
+      bgCtx.beginPath();
+      bgCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      bgCtx.fill();
+      bgCtx.restore();
+    }
+    bgCtx.restore();
+  }
+
+  // ---- 4. Frame ----
+  bgCtx.strokeStyle = 'rgba(110, 130, 170, 0.50)';
+  bgCtx.lineWidth = 2;
+  bgCtx.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+}
+
+// Rounded-rect path helper. Older Canvas2D (Safari etc) doesn't have
+// .roundRect on the context — this is the portable fallback. Used by
+// the Plinth board style to draw raised tiles with softened corners.
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function pieceRadius() {
+  return boardGeom.sq * 0.42;
+}
+
+function addCapture(state, x, y, player) {
+  // Pre-generate sparse organic ember positions so the dispersal looks
+  // like a small burst of dust, not 32 dots on a circle. Each ember has
+  // its own random angle and speed; rendering uses these stable values
+  // so embers don't jitter frame-to-frame.
+  const N = 11;
+  const embers = [];
+  for (let i = 0; i < N; i++) {
+    embers.push({
+      ang: Math.random() * Math.PI * 2,
+      speed: 0.55 + Math.random() * 0.95,
+      sizeJitter: 0.8 + Math.random() * 0.6,
+    });
+  }
+  state.captures.push({
+    x, y, player,
+    born: performance.now(),
+    duration: CONFIG.capturePulseSeconds * 1000,
+    embers,
+  });
+}
+
+// ============================================================
+// WEBGL — identical pipeline to index.html / lab2 (3 sharp presets)
+// ============================================================
+const glCanvas = document.getElementById('glCanvas');
+const uiCanvas = document.getElementById('uiCanvas');
+const bgCanvas = document.getElementById('bgCanvas');
+// preserveDrawingBuffer: true so favicon bake can drawImage the GL canvas
+// reliably across browsers (without it, the buffer is implementation-
+// defined and may be cleared before the same-tick read).
+const gl = glCanvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true, preserveDrawingBuffer: true });
+const ui = uiCanvas.getContext('2d');
+const bg = bgCanvas.getContext('2d');
+// Pure-software-rendering / no-GPU environments (kiosks running Chrome
+// with --disable-gpu, machines with no GL driver) can fail WebGL context
+// creation entirely (gl === null). initGL()/drawGL() already no-op on a
+// null gl, which used to mean the fractal pieces silently never drew —
+// board and UI chrome (both 2D canvas) rendered fine, so the game looked
+// "broken" with invisible pieces rather than erroring. Fall back to a
+// plain 2D canvas so pieces are always visible, just without the fractal
+// shader look.
+let gl2d = null;
+if (!gl) {
+  gl2d = glCanvas.getContext('2d');
+  document.getElementById('message').textContent = "WebGL not available.";
+}
+
+const VERT_SRC = `
+attribute vec2 aPos;
+varying vec2 vUv;
+void main() {
+  vUv = (aPos + 1.0) * 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`;
+
+const FRAG_SRC = `
+#extension GL_OES_standard_derivatives : enable
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+  precision highp float;
+#else
+  precision mediump float;
+#endif
+
+varying vec2 vUv;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform int uPieceCount;
+uniform vec4 uPiecesA[${MAX_PIECES}];
+uniform vec4 uPiecesB[${MAX_PIECES}];
+// 1.0 = this piece is frozen (no animation). 0.0 = animated normally.
+// Frozen pieces substitute a per-piece-stable constant for uTime in
+// every time-dependent helper, so they settle on a unique fractal
+// frame and stay there.
+uniform float uPieceFrozen[${MAX_PIECES}];
+// Stable per-piece seed source. JS provides each piece's stable ID
+// (assigned at game start, preserved across moves/captures) so the
+// shader's hash11()-derived seed doesn't shift when other pieces move
+// or are captured. Loop slot i no longer drives appearance — the
+// stable ID does.
+uniform float uPieceSeedId[${MAX_PIECES}];
+
+uniform int uFractalType;
+uniform int uColoring;
+uniform int uPalette;
+uniform float uMaxIter;
+uniform vec2 uJuliaC;
+uniform vec2 uZoomCenter;
+uniform float uZoomScale;
+uniform int uTrapShape;
+uniform vec2 uTrapPos;
+uniform float uTrapScale;
+uniform float uTrapRadius;
+uniform float uRelax;
+uniform int uSSAA;
+uniform float uViewScale;
+uniform int uTheme;
+
+const float BAILOUT2 = 65536.0;
+const int  MAX_ITER_HARD = 320;
+
+vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+  return a + b * cos(6.2831853 * (c * t + d));
+}
+vec3 paletteWarm(float t) { return palette(t, vec3(0.55,0.42,0.30), vec3(0.40,0.38,0.30), vec3(1.00,1.00,0.55), vec3(0.0,0.20,0.50)); }
+vec3 paletteCool(float t) { return palette(t, vec3(0.50,0.50,0.50), vec3(0.50,0.50,0.50), vec3(1.00,1.00,1.00), vec3(0.0,0.33,0.67)); }
+vec3 paletteAcid(float t) { return palette(t, vec3(0.50,0.50,0.50), vec3(0.45,0.40,0.42), vec3(1.40,0.80,0.20), vec3(0.50,0.20,0.25)); }
+
+// Team palettes — hue-constrained 4-stop cyclic interpolation. Each side
+// uses one team palette so pieces read as a team; the 8 keyframes (4 per
+// side) are picked by uTheme so the user can cycle themes from the UI.
+vec3 teamPalette(float t, float playerTint) {
+  vec3 a, b, c, d;
+  if (uTheme == 0) {
+    // FIRE — warm hue family with FULL luminance range so the four
+    // keyframes are clearly distinct, not four flavors of the same
+    // brightness. Deep crimson → orange → amber → peach.
+    // Luminance roughly 0.20 → 0.55 → 0.81 → 0.74.
+    if (playerTint > 0.0) {
+      a = vec3(0.55, 0.08, 0.05); b = vec3(1.00, 0.40, 0.05);
+      c = vec3(1.00, 0.85, 0.20); d = vec3(1.00, 0.65, 0.45);
+    } else {
+      // ICE — cool hue family, same dim→bright structure as Fire.
+      // Deep navy → electric blue → cyan → blue-violet.
+      // Luminance roughly 0.13 → 0.47 → 0.71 → 0.34.
+      a = vec3(0.02, 0.12, 0.45); b = vec3(0.10, 0.55, 1.00);
+      c = vec3(0.20, 0.92, 1.00); d = vec3(0.50, 0.30, 1.00);
+    }
+  } else if (uTheme == 1) {
+    if (playerTint > 0.0) {
+      // ACID — within-green luminance sweep. Deep forest → emerald →
+      // yellow-lime → bright lime. Luma 0.20 → 0.56 → 0.86 → 0.71.
+      // 0.66 range means keyframes clearly differ in apparent shading.
+      a = vec3(0.05, 0.30, 0.08); b = vec3(0.20, 0.85, 0.20);
+      c = vec3(0.85, 1.00, 0.15); d = vec3(0.40, 1.00, 0.05);
+    } else {
+      // VIOLET — deep purple → electric purple → hot magenta → light
+      // pink. Luma 0.13 → 0.34 → 0.51 → 0.70. Stays in cool-pink/
+      // purple hue family — no warm bleed.
+      a = vec3(0.20, 0.05, 0.45); b = vec3(0.70, 0.10, 1.00);
+      c = vec3(1.00, 0.20, 0.85); d = vec3(1.00, 0.55, 0.85);
+    }
+  }
+  t = fract(t); float s = t * 4.0;
+  int idx = int(floor(s)); float f = smoothstep(0.0, 1.0, fract(s));
+  vec3 k0, k1;
+  if (idx == 0)      { k0 = a; k1 = b; }
+  else if (idx == 1) { k0 = b; k1 = c; }
+  else if (idx == 2) { k0 = c; k1 = d; }
+  else               { k0 = d; k1 = a; }
+  return mix(k0, k1, f);
+}
+
+float hash11(float p) {
+  p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p);
+}
+float ign(vec2 px) {
+  return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715))));
+}
+
+vec2 cMul(vec2 a, vec2 b) { return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+vec2 cDiv(vec2 a, vec2 b) {
+  float d = dot(b, b);
+  return vec2(a.x*b.x + a.y*b.y, a.y*b.x - a.x*b.y) / max(d, 1e-12);
+}
+vec2 cSqr(vec2 z) { return vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y); }
+
+vec3 pickPalette(float t) {
+  if (uPalette == ${PAL_WARM}) return paletteWarm(t);
+  if (uPalette == ${PAL_COOL}) return paletteCool(t);
+  return paletteAcid(t);
+}
+
+// Trap updated per-iteration. seedT is the piece-specific hash so every
+// piece has its own rotation direction, phase offset, and trap-center drift.
+void updateTrap(inout float trapMin, inout vec2 trapPos, vec2 z, float seedT, float pieceTime) {
+  if (uTrapShape == ${T_POINT}) {
+    float d = dot(z - uTrapPos, z - uTrapPos);
+    if (d < trapMin) { trapMin = d; trapPos = z; }
+  } else if (uTrapShape == ${T_CIRCLE}) {
+    float d = abs(length(z - uTrapPos) - uTrapRadius);
+    if (d*d < trapMin) { trapMin = d*d; trapPos = z; }
+  } else if (uTrapShape == ${T_PICKOVER}) {
+    // Per-piece variety, all time-dependent terms read pieceTime so
+    // frozen pieces stay locked to a unique-but-fixed orbit.
+    float dirSign = (seedT > 0.5) ? 1.0 : -1.0;
+    float ang = pieceTime * 0.55 * dirSign + 0.32 * sin(pieceTime * 0.137) + seedT * 6.2832;
+    float ca = cos(ang), sa = sin(ang);
+    vec2 driftCenter = vec2(
+      0.15 * sin(pieceTime * 0.073 + seedT * 6.28),
+      0.15 * cos(pieceTime * 0.061 + seedT * 4.71)
+    );
+    vec2 zs = z - driftCenter;
+    vec2 zr = vec2(zs.x * ca + zs.y * sa, -zs.x * sa + zs.y * ca);
+    float d = min(abs(zr.x), abs(zr.y));
+    if (d*d < trapMin) { trapMin = d*d; trapPos = z; }
+  }
+}
+
+vec3 newtonRootColor(int rootIdx) {
+  float t;
+  if (uFractalType == ${F_NEWTON3} || uFractalType == ${F_NOVA}) {
+    if (rootIdx == 0)      t = 0.05;
+    else if (rootIdx == 1) t = 0.40;
+    else                   t = 0.75;
+  } else {
+    if (rootIdx == 0)      t = 0.05;
+    else if (rootIdx == 1) t = 0.30;
+    else if (rootIdx == 2) t = 0.55;
+    else                   t = 0.80;
+  }
+  return pickPalette(t);
+}
+
+struct NewtonResult { int rootIdx; float iters; float distLast; vec2 z; };
+NewtonResult iterateNewton(vec2 z0, float seedT, float pieceTime) {
+  vec2 z = z0;
+  int rootIdx = -1;
+  int N = int(uMaxIter);
+  if (N > MAX_ITER_HARD) N = MAX_ITER_HARD;
+  int iters = 0;
+  float distLast = 1.0;
+  float relax = uRelax + 0.07 * sin(pieceTime * 0.7 + seedT * 6.28);
+  // Per-piece phase offset (seedT * 2π) on the c-orbit + SLOW DRIFT on its
+  // center so each piece's tile pattern is unique AND the orbit visits a
+  // continuously-shifting region of c-space (never closes / never repeats).
+  vec2 lissajousCenter = vec2(
+    0.10 * sin(pieceTime * 0.029 + seedT * 6.28),
+    0.08 * cos(pieceTime * 0.041 + seedT * 4.71)
+  );
+  vec2 novaC = (uFractalType == ${F_NOVA})
+    ? lissajousCenter + vec2(
+        0.30 * cos(pieceTime * 0.200 + seedT * 6.28) + 0.12 * cos(pieceTime * 0.117),
+        0.30 * sin(pieceTime * 0.231 + seedT * 6.28) + 0.12 * sin(pieceTime * 0.151)
+      )
+    : vec2(0.0);
+  for (int j = 0; j < MAX_ITER_HARD; j++) {
+    if (j >= N) break;
+    vec2 prev = z;
+    if (uFractalType == ${F_NEWTON3} || uFractalType == ${F_NOVA}) {
+      vec2 z2 = cSqr(z);
+      vec2 z3 = cMul(z2, z);
+      vec2 num = z3 - vec2(1.0, 0.0);
+      vec2 den = 3.0 * z2;
+      z = z - relax * cDiv(num, den) + novaC;
+    } else {
+      vec2 z2 = cSqr(z);
+      vec2 z4 = cSqr(z2);
+      vec2 num = z4 - vec2(1.0, 0.0);
+      vec2 den = 4.0 * cMul(z2, z);
+      z = z - relax * cDiv(num, den);
+    }
+    float d = length(z - prev);
+    distLast = d;
+    iters = j + 1;
+    if (d < 1e-4) break;
+  }
+  if (uFractalType == ${F_NOVA}) {
+    float ang = atan(z.y, z.x);
+    if (ang < 0.0) ang += 6.2831853;
+    ang = mod(ang + 1.0471975, 6.2831853);
+    rootIdx = int(floor(ang / 2.0943951));
+    if (rootIdx > 2) rootIdx = 2;
+  } else {
+    vec2 roots3[3];
+    roots3[0] = vec2(1.0, 0.0);
+    roots3[1] = vec2(-0.5,  0.8660254);
+    roots3[2] = vec2(-0.5, -0.8660254);
+    vec2 roots4[4];
+    roots4[0] = vec2(1.0, 0.0);
+    roots4[1] = vec2(0.0, 1.0);
+    roots4[2] = vec2(-1.0, 0.0);
+    roots4[3] = vec2(0.0, -1.0);
+    float bestD = 1e10;
+    if (uFractalType == ${F_NEWTON3}) {
+      for (int k = 0; k < 3; k++) {
+        float dd = length(z - roots3[k]);
+        if (dd < bestD) { bestD = dd; rootIdx = k; }
+      }
+    } else {
+      for (int k = 0; k < 4; k++) {
+        float dd = length(z - roots4[k]);
+        if (dd < bestD) { bestD = dd; rootIdx = k; }
+      }
+    }
+  }
+  return NewtonResult(rootIdx, float(iters), distLast, z);
+}
+
+struct EscapeResult { vec2 z; vec2 dz; float smoothIter; bool escaped; float trapMin; vec2 trapPos; };
+EscapeResult iterateEscape(vec2 z0, vec2 c0, float seedT, float pieceTime) {
+  vec2 z = z0;
+  vec2 dz = vec2(1.0, 0.0);
+  float m2 = dot(z, z);
+  float smoothIter = uMaxIter;
+  float trapMin = 1e10;
+  vec2 trapPos = vec2(0.0);
+  bool escaped = false;
+  int N = int(uMaxIter);
+  if (N > MAX_ITER_HARD) N = MAX_ITER_HARD;
+  for (int j = 0; j < MAX_ITER_HARD; j++) {
+    if (j >= N) break;
+    if (uFractalType == ${F_JULIA} || uFractalType == ${F_MANDELBROT}) {
+      dz = 2.0 * cMul(z, dz);
+      if (uFractalType == ${F_MANDELBROT}) dz += vec2(1.0, 0.0);
+    }
+    if (uFractalType == ${F_JULIA}) {
+      z = cSqr(z) + c0;
+    } else if (uFractalType == ${F_MANDELBROT}) {
+      z = cSqr(z) + c0;
+    }
+    m2 = dot(z, z);
+    updateTrap(trapMin, trapPos, z, seedT, pieceTime);
+    if (m2 > BAILOUT2) {
+      smoothIter = float(j) - log2(log2(m2)) + 4.0;
+      escaped = true;
+      break;
+    }
+  }
+  return EscapeResult(z, dz, smoothIter, escaped, trapMin, trapPos);
+}
+
+vec4 shadeAt(vec2 fc) {
+  vec3 coreCol = vec3(0.0);
+  float coreAlpha = 0.0;
+
+  for (int i = 0; i < ${MAX_PIECES}; i++) {
+    if (i >= uPieceCount) break;
+    vec4 A = uPiecesA[i];
+    vec4 B = uPiecesB[i];
+    vec2 cPos = A.xy;
+    float r = A.z;
+    float playerTint = B.x;
+    float hover = B.y;
+    float zoom = B.z;
+    float capture = B.w;
+
+    float dist = length(fc - cPos);
+    if (dist > r) continue;
+
+    float seed = hash11(uPieceSeedId[i] + 0.137);
+    // sphereLocal stays in unrotated disc coords — used for sphere normal
+    // computation so the light stays fixed in screen space while the
+    // fractal texture rotates underneath (piece appears to spin).
+    vec2 sphereLocal = (fc - cPos) / r;
+
+    // 3D sphere surface projection. Treat the disc as the orthographic
+    // silhouette of a unit sphere. For each pixel inside the disc, the
+    // surface point on the front hemisphere is (sphereLocal, sphereZ);
+    // stereographic projection from the back pole (0,0,-1) onto the
+    // tangent plane at the front pole gives texture coords that follow
+    // the curvature. Identity at center (sphereZ=1 → divisor=1), ~2x
+    // stretched toward the silhouette (sphereZ=0 → divisor=0.5) so the
+    // fractal reads as painted on a real curved surface rather than a
+    // flat disc. Conformal: angles preserved → fractal self-similarity
+    // stays visually intact under the warp.
+    float r2 = dot(sphereLocal, sphereLocal);
+    float sphereZ = sqrt(max(1.0 - r2, 1e-4));
+    vec2 local = sphereLocal / max(0.5 + 0.5 * sphereZ, 0.01);
+
+    // FROZEN PIECE OVERRIDE. uPieceFrozen[i] is 1.0 for pieces in the
+    // "not moving" subset (set by the Motion: N button). pieceTime is
+    // substituted for uTime everywhere inside the fractal helpers, so
+    // a frozen piece reads a per-piece-stable constant (seed * 100.0)
+    // instead of the live clock — settles on a unique fractal frame
+    // and stays there. seedT-dependent terms inside the helpers still
+    // produce per-piece variety, so frozen pieces are visually distinct
+    // from each other.
+    float frozen = uPieceFrozen[i];
+    float pieceTime = mix(uTime, seed * 100.0, frozen);
+    float effTime = pieceTime;
+
+    // PER-PIECE SPATIAL ROTATION.
+    float spinDir = (seed > 0.5) ? 1.0 : -1.0;
+    float pieceAng = seed * 6.2832 + effTime * (0.04 + 0.06 * seed) * spinDir;
+    float pCa = cos(pieceAng), pSa = sin(pieceAng);
+    local = vec2(local.x * pCa - local.y * pSa, local.x * pSa + local.y * pCa);
+
+    vec2 z0, c0;
+    // Secondary hash used for continuous per-piece perturbation. Even when
+    // two pieces share the same discrete anchor (jIdx/mIdx), this nudges
+    // the Julia c / Mandelbrot center along a small unique vector, so no
+    // two pieces ever compute identical fractals.
+    float seedB = fract(seed * 17.137 + 0.31);
+    float pertAng = seedB * 6.2832;
+    vec2 pert = vec2(cos(pertAng), sin(pertAng));
+
+    if (uFractalType == ${F_JULIA}) {
+      z0 = local * uViewScale * (1.55 / max(zoom, 0.4));
+      if (hover > 0.5) {
+        float n = max(dot(z0, z0), 0.0008);
+        z0 = vec2(z0.x, -z0.y) / n;
+      }
+      // 8 anchors (up from 5) so a 12-piece team has fewer same-anchor
+      // collisions. All inside the Mandelbrot boundary → connected Julias.
+      int jIdx = int(floor(seed * 8.0));
+      vec2 cBase;
+      if (jIdx == 0)      cBase = vec2(-0.700,  0.270);   // classic dragon
+      else if (jIdx == 1) cBase = vec2(-0.400,  0.600);   // twisted spiral
+      else if (jIdx == 2) cBase = vec2( 0.285,  0.010);   // San Marco
+      else if (jIdx == 3) cBase = vec2(-0.835, -0.2321);  // Douady's rabbit
+      else if (jIdx == 4) cBase = vec2( 0.355,  0.355);   // lacy / dendritic
+      else if (jIdx == 5) cBase = vec2(-0.512,  0.521);   // basilica branch
+      else if (jIdx == 6) cBase = vec2( 0.420, -0.220);   // crooked tendrils
+      else                cBase = vec2(-1.135,  0.260);   // far-left filament
+      // Larger perturbation (0.050) so same-anchor pieces look clearly
+      // different. Still small enough to keep the Julia on-character.
+      c0 = cBase + 0.050 * pert;
+    } else if (uFractalType == ${F_MANDELBROT}) {
+      z0 = vec2(0.0);
+      int mIdx = int(floor(seed * 8.0));
+      vec2 mCenter; float mScale;
+      if (mIdx == 0)      { mCenter = vec2(-0.50,    0.00);    mScale = 1.40;  } // whole-set view
+      else if (mIdx == 1) { mCenter = vec2(-0.745,   0.113);   mScale = 0.055; } // seahorse valley
+      else if (mIdx == 2) { mCenter = vec2( 0.282,   0.012);   mScale = 0.060; } // elephant valley
+      else if (mIdx == 3) { mCenter = vec2(-1.40,    0.0);     mScale = 0.32;  } // left antenna
+      else if (mIdx == 4) { mCenter = vec2(-0.16,    1.04);    mScale = 0.32;  } // top cardioid edge
+      else if (mIdx == 5) { mCenter = vec2(-0.7269,  0.1889);  mScale = 0.045; } // spiral arms
+      else if (mIdx == 6) { mCenter = vec2(-0.0805,  0.6650);  mScale = 0.080; } // triple-junction zone
+      else                { mCenter = vec2(-1.249,   0.04);    mScale = 0.110; } // mini-mandelbrot row
+      // Larger perturbation (0.50 instead of 0.30 of patch width) so
+      // same-anchor pieces show different fractal regions.
+      mCenter += pert * mScale * 0.50;
+      vec2 zoomedLocal = local * (1.0 / max(zoom, 0.4));
+      c0 = mCenter + zoomedLocal * mScale;
+    } else {
+      z0 = local * uViewScale * (1.6 / max(zoom, 0.4));
+      c0 = vec2(0.0);
+    }
+
+    vec3 col = vec3(0.0);
+    if (uFractalType == ${F_NEWTON3} || uFractalType == ${F_NEWTON4} || uFractalType == ${F_NOVA}) {
+      NewtonResult R = iterateNewton(z0, seed, pieceTime);
+      vec3 root = newtonRootColor(R.rootIdx);
+      col = root;
+      float boundary = smoothstep(0.55, 0.85, R.iters / uMaxIter);
+      col = mix(col, vec3(0.02), boundary * 0.85);
+    } else {
+      EscapeResult E = iterateEscape(z0, c0, seed, pieceTime);
+      if (uColoring == ${C_BANDS}) {
+        float pieceShift = seed * 0.80;
+        if (!E.escaped) {
+          // Interior pixels — lifted from 0.60× to 0.90× so the inside
+          // of the Mandelbrot set stays rich, not muddy. Half of a bands
+          // piece tends to be interior; 0.60 was making whole pieces
+          // read as faded.
+          float interT = fract(0.35 + 0.12 * E.z.x + 0.08 * E.z.y
+                              + effTime * 0.04 + pieceShift);
+          col = teamPalette(interT, playerTint) * 0.90;
+        } else {
+          float bandFreq = max(uTrapScale, 0.5);
+          float dirSign  = (seed > 0.5) ? 1.0 : -1.0;
+          float modIter  = (E.smoothIter + effTime * 2.0 * dirSign + seed * 10.0) / bandFreq;
+          float phase    = fract(modIter);
+          float fw       = max(fwidth(modIter), 0.005);
+          float band     = smoothstep(0.5 - fw, 0.5 + fw, phase);
+          float bandIdx  = floor(modIter);
+          float drift   = effTime * 0.013 + bandIdx * 0.20 + pieceShift;
+          vec3 c1 = teamPalette(fract(drift),         playerTint);
+          vec3 c2 = teamPalette(fract(drift + 0.50),  playerTint);
+          col = mix(c1, c2, band);
+        }
+      } else if (uColoring == ${C_PICKOVER}) {
+        float t = clamp(sqrt(E.trapMin) * uTrapScale, 0.0, 1.0);
+        float fw = max(fwidth(t), 0.005);
+        float stalk = smoothstep(0.14 - fw, 0.14 + fw, t);
+        float pieceShift = seed * 0.85;
+        float colorT = fract(E.smoothIter * 0.045 + effTime * 0.05 + pieceShift);
+        vec3 stalkCol = teamPalette(colorT, playerTint);
+        // Gap raised from 0.05× to 0.20× so the dark space between
+        // stalks carries some team color, not pure black. The disc as
+        // a whole now reads as a team-tinted glow with vivid filaments
+        // through it, instead of stalks-on-void.
+        vec3 bg      = teamPalette(fract(colorT + 0.55), playerTint) * 0.20;
+        col = mix(stalkCol, bg, stalk);
+      } else {
+        float t = clamp(E.smoothIter / uMaxIter, 0.0, 1.0);
+        col = pickPalette(t);
+      }
+    }
+
+    // ============================================================
+    // SPHERE SHADING — light the surface implied by the wrap above.
+    // ============================================================
+    // r2 / sphereZ were computed up top (used by the wrap projection).
+    // The surface normal at sphereLocal is just (x, y, sphereZ) since
+    // the sphere is unit.
+    vec3 normal = vec3(sphereLocal.x, sphereLocal.y, sphereZ);
+
+    // Fixed light from upper-left-front (screen +Y is up in piece coords
+    // because A.y was flipped on upload).
+    vec3 lightDir = normalize(vec3(-0.35, 0.55, 0.85));
+    vec3 viewDir  = vec3(0.0, 0.0, 1.0);     // orthographic camera +Z
+    vec3 halfVec  = normalize(lightDir + viewDir);
+
+    float diffuse  = max(dot(normal, lightDir), 0.0);
+    float specular = pow(max(dot(normal, halfVec), 0.0), 26.0);
+    // Rim glow — strongest where the sphere curves perpendicular to
+    // view (silhouette edge). Replaces the old hairline ring.
+    float rim = pow(1.0 - sphereZ, 2.5);
+
+    vec3 teamSig = teamPalette(0.0, playerTint);
+
+    // Body shading — Lambert. Range 0.30..1.0 means the fully-shaded
+    // back never goes pitch black (silhouette floor will catch
+    // anything that drops below 0.10 * teamSig).
+    col *= 0.30 + 0.70 * diffuse;
+
+    // Silhouette floor — clamps the dark side of the sphere to a
+    // visible team-tinted base so the orb shape stays readable.
+    col = max(col, teamSig * 0.12);
+
+    if (capture > 0.0) {
+      float pulse = 0.5 + 0.5 * sin(capture * 22.0);
+      col = mix(col, vec3(1.0, 0.92, 0.75), capture * 0.7 * pulse);
+    }
+
+    // Specular highlight — bright glossy spot in light-tinted color.
+    col += specular * mix(teamSig, vec3(1.0), 0.75) * 0.65;
+
+    // Rim glow — team-colored halo at the silhouette. Brighter than
+    // the body so the edge reads as a luminous boundary, not a hard
+    // outline. Stronger on the lit side via diffuse blend.
+    float rimMix = rim * (0.45 + 0.65 * diffuse);
+    col += rimMix * teamSig * 1.30;
+
+    float discFw = max(fwidth(dist), 0.5);
+
+    coreCol = col;
+    coreAlpha = 1.0 - smoothstep(r - discFw, r + discFw, dist);
+  }
+
+  return vec4(coreCol, coreAlpha);
+}
+
+void main() {
+  vec2 fc = vUv * uResolution;
+  vec4 col;
+  if (uSSAA == 1) {
+    vec2 d = vec2(0.25);
+    col = (shadeAt(fc + vec2(-d.x, -d.y))
+         + shadeAt(fc + vec2( d.x, -d.y))
+         + shadeAt(fc + vec2(-d.x,  d.y))
+         + shadeAt(fc + vec2( d.x,  d.y))) * 0.25;
+  } else if (uSSAA == 2) {
+    col = vec4(0.0);
+    for (int dy = -1; dy <= 1; dy++) {
+      for (int dx = -1; dx <= 1; dx++) {
+        vec2 off = vec2(float(dx), float(dy)) * (1.0/3.0);
+        col += shadeAt(fc + off);
+      }
+    }
+    col /= 9.0;
+  } else {
+    col = shadeAt(fc);
+  }
+  vec3 rgb = col.rgb + (ign(gl_FragCoord.xy) - 0.5) / 255.0;
+  gl_FragColor = vec4(rgb * col.a, col.a);
+}
+`;
+
+function compile(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error("Shader:", gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+let glProgram, U, attribBuffer;
+function initGL() {
+  if (!gl) return;
+  gl.getExtension('OES_standard_derivatives');
+  const vs = compile(VERT_SRC, gl.VERTEX_SHADER);
+  const fs = compile(FRAG_SRC, gl.FRAGMENT_SHADER);
+  glProgram = gl.createProgram();
+  gl.attachShader(glProgram, vs); gl.attachShader(glProgram, fs);
+  gl.linkProgram(glProgram);
+  if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS)) {
+    console.error("Link:", gl.getProgramInfoLog(glProgram));
+    return;
+  }
+  gl.useProgram(glProgram);
+  attribBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, attribBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1,
+  ]), gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(glProgram, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  U = {};
+  for (const name of [
+    'uResolution','uTime','uPieceCount','uPiecesA','uPiecesB','uPieceFrozen','uPieceSeedId',
+    'uFractalType','uColoring','uPalette','uMaxIter',
+    'uJuliaC','uZoomCenter','uZoomScale',
+    'uTrapShape','uTrapPos','uTrapScale','uTrapRadius',
+    'uRelax','uSSAA','uViewScale','uTheme',
+  ]) {
+    U[name] = gl.getUniformLocation(glProgram, name);
+  }
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+}
+
+function setPresetUniforms(presetKey) {
+  const preset = PRESETS[presetKey];
+  const p = preset.p;
+  gl.uniform1i(U.uFractalType, preset.fractal);
+  gl.uniform1i(U.uColoring, preset.coloring);
+  gl.uniform1i(U.uPalette, preset.palette);
+  gl.uniform1f(U.uMaxIter, p.maxIter ?? 160);
+  gl.uniform2f(U.uJuliaC, p.jCx ?? 0, p.jCy ?? 0);
+  gl.uniform2f(U.uZoomCenter, p.zoomCx ?? 0, p.zoomCy ?? 0);
+  gl.uniform1f(U.uZoomScale, p.zoomScale ?? 1.5);
+  gl.uniform1i(U.uTrapShape, p.trapShape ?? 0);
+  gl.uniform2f(U.uTrapPos, p.trapPx ?? 0, p.trapPy ?? 0);
+  gl.uniform1f(U.uTrapScale, p.trapScale ?? 1.0);
+  gl.uniform1f(U.uTrapRadius, p.trapRadius ?? 0.5);
+  gl.uniform1f(U.uRelax, p.relax ?? 1.0);
+  gl.uniform1f(U.uViewScale, p.viewScale ?? 1.0);
+}
+
+function uploadPieces(pieces) {
+  const A = new Float32Array(MAX_PIECES * 4);
+  const B = new Float32Array(MAX_PIECES * 4);
+  const F = new Float32Array(MAX_PIECES);            // frozen flags
+  const S = new Float32Array(MAX_PIECES);            // stable seed IDs
+  const n = Math.min(pieces.length, MAX_PIECES);
+  const dpr = state.dpr;
+  const activeSet = state.motionActiveSet;
+  const motionCount = MOTION_COUNTS[state.motionCountIdx].count;
+  const freezeAny = motionCount < 24 && activeSet;
+  for (let i = 0; i < n; i++) {
+    const p = pieces[i];
+    A[i*4+0] = p.x * dpr;
+    A[i*4+1] = (state.canvasSize.h - p.y) * dpr;
+    A[i*4+2] = p.radius * dpr;
+    A[i*4+3] = 0.0;  // unused (was per-piece advantage, removed)
+    B[i*4+0] = p.player === 0 ? 1.0 : -1.0;
+    B[i*4+1] = p.hover ? 1.0 : 0.0;
+    B[i*4+2] = p.zoom || 1.0;
+    B[i*4+3] = p.captureProgress || 0.0;
+    // Stable seed source — survives captures/moves so each piece's
+    // fractal frame doesn't reshuffle when the per-frame upload array
+    // re-indexes. Fall back to loop index if no stableId attached.
+    S[i] = (p.stableId !== null && p.stableId !== undefined) ? p.stableId : i;
+    // Freeze any piece whose stable ID is NOT in the active set.
+    // Captures and in-flight tweens stay animated regardless — those
+    // are short-lived synthetic entries and freezing them looks broken.
+    const isInFlight = (p.captureProgress || 0) > 0 || p.moving;
+    F[i] = (freezeAny && !activeSet.has(p.stableId) && !isInFlight) ? 1.0 : 0.0;
+  }
+  gl.uniform1i(U.uPieceCount, n);
+  gl.uniform4fv(U.uPiecesA, A);
+  gl.uniform4fv(U.uPiecesB, B);
+  gl.uniform1fv(U.uPieceFrozen, F);
+  gl.uniform1fv(U.uPieceSeedId, S);
+}
+
+function drawGL(pieces, time) {
+  if (!gl || !glProgram) { drawGL2DFallback(pieces); return; }
+  const groups = { bands: [], stalks: [], nova: [] };
+  for (const p of pieces) groups[presetKeyForPiece(p, state)].push(p);
+
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(glProgram);
+  gl.uniform2f(U.uResolution, glCanvas.width, glCanvas.height);
+  gl.uniform1f(U.uTime, time);
+  gl.uniform1i(U.uSSAA, FORCED_SSAA);
+  gl.uniform1i(U.uTheme, state.themeIdx);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, attribBuffer);
+  const aPos = gl.getAttribLocation(glProgram, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  for (const key of ['bands', 'stalks', 'nova']) {
+    if (groups[key].length === 0) continue;
+    setPresetUniforms(key);
+    uploadPieces(groups[key]);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+}
+
+// No-WebGL fallback: plain 2D sphere per piece (solid team color, radial
+// shading for a bit of depth) drawn onto glCanvas via its 2D context.
+// Not a fractal — just enough to make every piece visible and readable
+// on hardware that can't create a WebGL context. Cheap (<=24 gradients
+// per frame), so it stays smooth even on slow software-rendering boxes.
+function drawGL2DFallback(pieces) {
+  if (!gl2d) return;
+  const w = state.canvasSize.w, h = state.canvasSize.h;
+  gl2d.clearRect(0, 0, w, h);
+  if (!pieces || !pieces.length) return;
+  const tints = TEAM_GLOWS[state.themeIdx] || TEAM_GLOWS[0];
+  for (const p of pieces) {
+    const tint = p.player === 0 ? tints.p0 : tints.p1;
+    const r = p.radius * (p.zoom || 1.0);
+    const grad = gl2d.createRadialGradient(
+      p.x - r * 0.35, p.y - r * 0.35, r * 0.05,
+      p.x, p.y, r
+    );
+    grad.addColorStop(0,    `rgba(${tint}, 1)`);
+    grad.addColorStop(0.55, `rgba(${tint}, 0.92)`);
+    grad.addColorStop(1,    `rgba(${tint}, 0.55)`);
+    gl2d.fillStyle = grad;
+    gl2d.beginPath();
+    gl2d.arc(p.x, p.y, r, 0, Math.PI * 2);
+    gl2d.fill();
+    if (p.hover) {
+      gl2d.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      gl2d.lineWidth = Math.max(1.5, r * 0.08);
+      gl2d.stroke();
+    }
+  }
+}
+
+// ============================================================
+// BACKGROUND — bgCanvas (z=0), below the GL canvas. Dispatches on
+// state.boardStyleIdx to pick one of four visual treatments. The
+// spheres render identically across all of them; only the chrome
+// underneath changes. Per-piece anti-grav floor spots are drawn
+// after the chrome in all styles, so each style can re-skin the
+// board while the pieces stay anchored.
+// ============================================================
+function drawBackground(pieces) {
+  if (!bgCanvas.width) return;
+  const w = state.canvasSize.w, h = state.canvasSize.h;
+  const sq = boardGeom.sq, ox = boardGeom.ox, oy = boardGeom.oy;
+  const now = performance.now();
+  const style = (BOARD_STYLES[state.boardStyleIdx] || BOARD_STYLES[0]).id;
+
+  bg.clearRect(0, 0, w, h);
+
+  // Common deep-space base for every style.
+  bg.fillStyle = '#04040a';
+  bg.fillRect(0, 0, w, h);
+  const ambient = bg.createRadialGradient(w/2, h*0.05, 0, w/2, h*0.05, Math.max(w, h)*0.9);
+  ambient.addColorStop(0,    'rgba(48, 28, 78, 0.32)');
+  ambient.addColorStop(0.45, 'rgba(20, 12, 36, 0.12)');
+  ambient.addColorStop(1,    'rgba(0, 0, 0, 0)');
+  bg.fillStyle = ambient;
+  bg.fillRect(0, 0, w, h);
+
+  // ---- STYLE: SLAB ----
+  // Raised tiles with bevel + inset well per dark square. Original
+  // dimensional treatment.
+  if (style === 'slab') {
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        const tlx = ox + c * sq, tly = oy + r * sq;
+        const tcx = tlx + sq * 0.5, tcy = tly + sq * 0.5;
+        bg.fillStyle = dark ? 'rgb(34, 20, 54)' : 'rgb(12, 6, 18)';
+        bg.fillRect(tlx, tly, sq, sq);
+        const diag = bg.createLinearGradient(tlx, tly, tlx + sq, tly + sq);
+        diag.addColorStop(0,    'rgba(255, 230, 195, 0.10)');
+        diag.addColorStop(0.4,  'rgba(0, 0, 0, 0)');
+        diag.addColorStop(0.6,  'rgba(0, 0, 0, 0)');
+        diag.addColorStop(1,    'rgba(0, 0, 0, 0.32)');
+        bg.fillStyle = diag;
+        bg.fillRect(tlx, tly, sq, sq);
+        bg.strokeStyle = 'rgba(255, 230, 195, 0.16)';
+        bg.lineWidth = 1;
+        bg.beginPath();
+        bg.moveTo(tlx + 0.5, tly + sq);
+        bg.lineTo(tlx + 0.5, tly + 0.5);
+        bg.lineTo(tlx + sq,  tly + 0.5);
+        bg.stroke();
+        if (dark) {
+          const wellR = sq * 0.46;
+          const wellGrad = bg.createRadialGradient(tcx, tcy + sq * 0.04, 0, tcx, tcy + sq * 0.04, wellR);
+          wellGrad.addColorStop(0,    'rgba(0, 0, 0, 0.45)');
+          wellGrad.addColorStop(0.55, 'rgba(0, 0, 0, 0.20)');
+          wellGrad.addColorStop(1,    'rgba(0, 0, 0, 0)');
+          bg.fillStyle = wellGrad;
+          bg.fillRect(tlx, tly, sq, sq);
+        }
+      }
+    }
+    bg.strokeStyle = 'rgba(90, 70, 120, 0.55)';
+    bg.lineWidth = 2;
+    bg.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+  }
+
+  // ---- STYLE: VOID ----
+  // No tiles, no frame. Pieces float in deep space with their own
+  // anti-grav glows. The only chrome is a single ambient nebula
+  // hint behind the board area.
+  else if (style === 'void') {
+    // Faint nebula wash centered on the board so the play area has
+    // a subtle "you are here" without a frame.
+    const cxAll = ox + sq * 4, cyAll = oy + sq * 4;
+    const nebula = bg.createRadialGradient(cxAll, cyAll, 0, cxAll, cyAll, sq * 5);
+    nebula.addColorStop(0,    'rgba(40, 20, 70, 0.22)');
+    nebula.addColorStop(0.6,  'rgba(15, 8, 30, 0.10)');
+    nebula.addColorStop(1,    'rgba(0, 0, 0, 0)');
+    bg.fillStyle = nebula;
+    bg.fillRect(0, 0, w, h);
+  }
+
+  // ---- STYLE: GRID ----
+  // Static thin outlines per tile, no pulse. Lines lock at 30% of
+  // the previous animated peak — mostly dull, just enough to read
+  // the grid.
+  else if (style === 'grid') {
+    const pulse = 0.62;            // bumped for live: lines slightly bolder
+    bg.save();
+    bg.globalCompositeOperation = 'lighter';
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        const tlx = ox + c * sq, tly = oy + r * sq;
+        const a = dark ? 0.20 * pulse : 0.07 * pulse;
+        bg.strokeStyle = `rgba(140, 180, 255, ${a.toFixed(3)})`;
+        bg.lineWidth = 1;
+        bg.strokeRect(tlx + 0.5, tly + 0.5, sq - 1, sq - 1);
+      }
+    }
+    bg.strokeStyle = `rgba(140, 180, 255, ${(0.30 * pulse).toFixed(3)})`;
+    bg.lineWidth = 2;
+    bg.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+    bg.restore();
+  }
+
+  // ---- STYLE: STARS ----
+  // Constellation — each tile center is a dim dot. Adjacent
+  // (rook-direction) dots are connected by faint lines. Diagonal
+  // lines linking playable tiles only. Reads as a star network.
+  else if (style === 'stars') {
+    const twinkle = 0.7 + 0.3 * Math.sin(now * 0.0014);
+    bg.save();
+    bg.globalCompositeOperation = 'lighter';
+    // Connecting lines between adjacent tile centers, very faint.
+    bg.strokeStyle = `rgba(160, 200, 255, ${(0.08 * twinkle).toFixed(3)})`;
+    bg.lineWidth = 1;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const cx = ox + (c + 0.5) * sq;
+        const cy = oy + (r + 0.5) * sq;
+        if (c < 7) {
+          bg.beginPath();
+          bg.moveTo(cx, cy);
+          bg.lineTo(cx + sq, cy);
+          bg.stroke();
+        }
+        if (r < 7) {
+          bg.beginPath();
+          bg.moveTo(cx, cy);
+          bg.lineTo(cx, cy + sq);
+          bg.stroke();
+        }
+      }
+    }
+    // Star at each tile center — small bright dot for playable
+    // (dark) tiles, tiny dim dot for non-playable.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        const cx = ox + (c + 0.5) * sq;
+        const cy = oy + (r + 0.5) * sq;
+        const starR = dark ? 2.6 : 1.4;
+        const starA = dark ? 0.85 * twinkle : 0.32 * twinkle;
+        const sGrad = bg.createRadialGradient(cx, cy, 0, cx, cy, starR * 3);
+        sGrad.addColorStop(0,   `rgba(220, 230, 255, ${starA.toFixed(3)})`);
+        sGrad.addColorStop(0.3, `rgba(160, 200, 255, ${(starA * 0.4).toFixed(3)})`);
+        sGrad.addColorStop(1,   'rgba(160, 200, 255, 0)');
+        bg.fillStyle = sGrad;
+        bg.beginPath();
+        bg.arc(cx, cy, starR * 3, 0, Math.PI * 2);
+        bg.fill();
+      }
+    }
+    bg.restore();
+  }
+
+  // ---- STYLE: CARVED ----
+  // Each playable tile is a deep cup carved into a stone slab. The
+  // sphere sits inside the cup. Strong inner shadow ring around the
+  // rim sells the depth — the eye reads the dark crescent as a wall
+  // the sphere is nestled behind. Non-playable tiles are flat stone.
+  else if (style === 'carved') {
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        const tlx = ox + c * sq, tly = oy + r * sq;
+        const tcx = tlx + sq * 0.5, tcy = tly + sq * 0.5;
+        // Stone slab base — slightly warm grey, slightly lighter on non-playable.
+        bg.fillStyle = dark ? 'rgb(28, 22, 36)' : 'rgb(40, 32, 50)';
+        bg.fillRect(tlx, tly, sq, sq);
+        // Subtle top-edge highlight + bottom-edge shadow on every tile
+        // so the slab has overall lighting consistency.
+        const slabLight = bg.createLinearGradient(tcx, tly, tcx, tly + sq);
+        slabLight.addColorStop(0,    'rgba(255, 240, 210, 0.08)');
+        slabLight.addColorStop(0.5,  'rgba(0, 0, 0, 0)');
+        slabLight.addColorStop(1,    'rgba(0, 0, 0, 0.25)');
+        bg.fillStyle = slabLight;
+        bg.fillRect(tlx, tly, sq, sq);
+        if (dark) {
+          // The cup. Three-stop radial: very dark center, mid darkness
+          // through the wall, sharp bright rim, fade to slab.
+          const cupR = sq * 0.42;
+          // Inner well — deep darkness inside the cup, no piece overlap.
+          const cupInner = bg.createRadialGradient(tcx, tcy + sq * 0.03, 0, tcx, tcy + sq * 0.03, cupR);
+          cupInner.addColorStop(0,    'rgba(0, 0, 0, 0.78)');
+          cupInner.addColorStop(0.55, 'rgba(0, 0, 0, 0.48)');
+          cupInner.addColorStop(0.85, 'rgba(0, 0, 0, 0.10)');
+          cupInner.addColorStop(1,    'rgba(0, 0, 0, 0)');
+          bg.fillStyle = cupInner;
+          bg.fillRect(tlx, tly, sq, sq);
+          // Bright rim — a thin highlight ring at the top of the cup
+          // wall, biased to the upper-left where the implied key light
+          // hits. Draw as a stroked arc with a radial-fade clip.
+          bg.save();
+          bg.beginPath();
+          bg.arc(tcx, tcy + sq * 0.02, cupR * 0.94, 0, Math.PI * 2);
+          bg.strokeStyle = 'rgba(255, 230, 195, 0.32)';
+          bg.lineWidth = 1.5;
+          bg.stroke();
+          // Upper-left brighter rim segment for key-light direction.
+          bg.beginPath();
+          bg.arc(tcx, tcy + sq * 0.02, cupR * 0.94, Math.PI * 0.85, Math.PI * 1.65);
+          bg.strokeStyle = 'rgba(255, 245, 215, 0.55)';
+          bg.lineWidth = 2;
+          bg.stroke();
+          bg.restore();
+        }
+      }
+    }
+    bg.strokeStyle = 'rgba(90, 70, 120, 0.55)';
+    bg.lineWidth = 2;
+    bg.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+  }
+
+  // ---- STYLE: PLINTH ----
+  // Each dark tile is a raised platform floating above the board
+  // floor. A soft drop shadow extends down-right from the tile onto
+  // the floor below. The sphere sits on top of the plinth — the
+  // shadow under the plinth grounds BOTH the tile AND the sphere.
+  // Non-playable squares are recessed channels between plinths.
+  else if (style === 'plinth') {
+    // First pass: the recessed floor (everywhere). Dark with subtle
+    // texture from a directional gradient.
+    bg.fillStyle = 'rgb(8, 6, 14)';
+    bg.fillRect(ox, oy, sq * 8, sq * 8);
+    const floorGrad = bg.createLinearGradient(ox, oy, ox + sq * 8, oy + sq * 8);
+    floorGrad.addColorStop(0,    'rgba(40, 30, 60, 0.20)');
+    floorGrad.addColorStop(0.5,  'rgba(0, 0, 0, 0)');
+    floorGrad.addColorStop(1,    'rgba(0, 0, 0, 0.30)');
+    bg.fillStyle = floorGrad;
+    bg.fillRect(ox, oy, sq * 8, sq * 8);
+    // Second pass: drop shadows. Draw all shadows BEFORE all plinths
+    // so a shadow never lands on top of a neighbor plinth — proper
+    // layering reads as "everything floats at the same height."
+    const shadowOff = sq * 0.10;
+    const inset = sq * 0.04;
+    const plinthW = sq - 2 * inset;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        // Soft drop shadow — radial would over-blur, so use a
+        // displaced rectangle filled with a darkening gradient.
+        bg.save();
+        bg.shadowColor = 'rgba(0, 0, 0, 0.55)';
+        bg.shadowBlur = sq * 0.18;
+        bg.shadowOffsetX = shadowOff;
+        bg.shadowOffsetY = shadowOff;
+        bg.fillStyle = 'rgba(0, 0, 0, 1.0)';
+        const radius = sq * 0.08;
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        bg.restore();
+      }
+    }
+    // Third pass: the plinth tops. Soft purple stone with a bright
+    // top-edge highlight (key light) and faint bottom edge.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        const radius = sq * 0.08;
+        // Plinth fill — slight diagonal sheen.
+        bg.fillStyle = 'rgb(46, 32, 70)';
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        const sheen = bg.createLinearGradient(tlx, tly, tlx + plinthW, tly + plinthW);
+        sheen.addColorStop(0,    'rgba(255, 230, 195, 0.18)');
+        sheen.addColorStop(0.5,  'rgba(0, 0, 0, 0)');
+        sheen.addColorStop(1,    'rgba(0, 0, 0, 0.28)');
+        bg.fillStyle = sheen;
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        // Top-edge highlight stroke for key-light pop.
+        bg.strokeStyle = 'rgba(255, 240, 210, 0.45)';
+        bg.lineWidth = 1;
+        bg.beginPath();
+        bg.moveTo(tlx + radius, tly + 0.5);
+        bg.lineTo(tlx + plinthW - radius, tly + 0.5);
+        bg.stroke();
+      }
+    }
+    // Outer frame — soft glow around the plinth field.
+    bg.strokeStyle = 'rgba(110, 90, 150, 0.55)';
+    bg.lineWidth = 2;
+    bg.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+  }
+
+  // ---- STYLE: PLINTH-GLASS ----
+  // Plinth variant: the platforms are polished glass/acrylic. Top
+  // surface has a hard top-edge key-light line, a fake "horizon"
+  // band just below (the classic studio-render giveaway), and a
+  // subtle cool-blue undertone implying refracted light passing
+  // through. Drop shadow softer + further offset to imply the glass
+  // is floating slightly higher than the matte Plinth variant.
+  else if (style === 'plinth-glass') {
+    bg.fillStyle = 'rgb(8, 6, 14)';
+    bg.fillRect(ox, oy, sq * 8, sq * 8);
+    const floorGrad = bg.createLinearGradient(ox, oy, ox + sq * 8, oy + sq * 8);
+    floorGrad.addColorStop(0,    'rgba(35, 28, 60, 0.22)');
+    floorGrad.addColorStop(0.5,  'rgba(0, 0, 0, 0)');
+    floorGrad.addColorStop(1,    'rgba(0, 0, 0, 0.32)');
+    bg.fillStyle = floorGrad;
+    bg.fillRect(ox, oy, sq * 8, sq * 8);
+    const inset = sq * 0.05;
+    const plinthW = sq - 2 * inset;
+    const radius = sq * 0.10;  // slightly more rounded than matte plinth
+    // Shadows pass.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        bg.save();
+        bg.shadowColor = 'rgba(0, 0, 0, 0.50)';
+        bg.shadowBlur = sq * 0.24;       // softer than matte
+        bg.shadowOffsetX = sq * 0.12;
+        bg.shadowOffsetY = sq * 0.14;
+        bg.fillStyle = 'rgba(0, 0, 0, 1.0)';
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        bg.restore();
+      }
+    }
+    // Glass tops.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        // Base glass fill — cool blue-violet, darker than matte plinth.
+        bg.fillStyle = 'rgb(28, 26, 52)';
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        // Vertical polished sheen — bright top fading dark, then
+        // brightening slightly at the bottom (light passing through
+        // the acrylic) — classic glass tell.
+        const sheen = bg.createLinearGradient(tlx, tly, tlx, tly + plinthW);
+        sheen.addColorStop(0,    'rgba(255, 250, 235, 0.35)');
+        sheen.addColorStop(0.18, 'rgba(255, 245, 220, 0.10)');
+        sheen.addColorStop(0.55, 'rgba(0, 0, 0, 0.18)');
+        sheen.addColorStop(0.92, 'rgba(110, 140, 220, 0.10)');
+        sheen.addColorStop(1,    'rgba(180, 200, 255, 0.18)');
+        bg.fillStyle = sheen;
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        // Hard top-edge key-light line — the brightest pixel on the
+        // plinth, sells "polished surface" instantly.
+        bg.strokeStyle = 'rgba(255, 250, 240, 0.80)';
+        bg.lineWidth = 1;
+        bg.beginPath();
+        bg.moveTo(tlx + radius * 0.8, tly + 0.5);
+        bg.lineTo(tlx + plinthW - radius * 0.8, tly + 0.5);
+        bg.stroke();
+        // Fake "horizon" band a few px below top edge — the studio-
+        // render trick that reads as "polished reflective material."
+        bg.strokeStyle = 'rgba(200, 215, 250, 0.30)';
+        bg.lineWidth = 0.8;
+        bg.beginPath();
+        bg.moveTo(tlx + plinthW * 0.18, tly + plinthW * 0.18);
+        bg.lineTo(tlx + plinthW * 0.82, tly + plinthW * 0.18);
+        bg.stroke();
+      }
+    }
+    bg.strokeStyle = 'rgba(120, 130, 180, 0.55)';
+    bg.lineWidth = 2;
+    bg.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+  }
+
+  // ---- STYLE: PLINTH-TALL ----
+  // Plinth variant: the platforms appear taller. Bigger drop shadow,
+  // narrower (more-inset) base, and a visible right+bottom "side
+  // face" gradient on each plinth that implies real height. The
+  // sphere now reads as sitting much further above the floor — more
+  // theatrical, more architectural.
+  else if (style === 'plinth-tall') {
+    bg.fillStyle = 'rgb(6, 5, 12)';
+    bg.fillRect(ox, oy, sq * 8, sq * 8);
+    const floorGrad = bg.createLinearGradient(ox, oy, ox + sq * 8, oy + sq * 8);
+    floorGrad.addColorStop(0,    'rgba(40, 30, 60, 0.25)');
+    floorGrad.addColorStop(0.5,  'rgba(0, 0, 0, 0)');
+    floorGrad.addColorStop(1,    'rgba(0, 0, 0, 0.38)');
+    bg.fillStyle = floorGrad;
+    bg.fillRect(ox, oy, sq * 8, sq * 8);
+    const inset = sq * 0.07;       // narrower base = more "tower"
+    const plinthW = sq - 2 * inset;
+    const radius = sq * 0.07;
+    const sideOff = sq * 0.07;     // how much "side face" peeks out
+    // Shadow pass — dramatic.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        bg.save();
+        bg.shadowColor = 'rgba(0, 0, 0, 0.70)';
+        bg.shadowBlur = sq * 0.32;
+        bg.shadowOffsetX = sq * 0.18;
+        bg.shadowOffsetY = sq * 0.22;
+        bg.fillStyle = 'rgba(0, 0, 0, 1.0)';
+        roundRectPath(bg, tlx + sideOff, tly + sideOff, plinthW, plinthW, radius);
+        bg.fill();
+        bg.restore();
+      }
+    }
+    // Side face pass — draw the right + bottom side of each plinth
+    // as a darker offset quad BEHIND the top, peeking out lower-right.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        // The "side" rectangle is shifted down-right to peek out from
+        // beneath the top face.
+        bg.fillStyle = 'rgb(20, 14, 32)';
+        roundRectPath(bg, tlx + sideOff, tly + sideOff, plinthW, plinthW, radius);
+        bg.fill();
+        const sideShade = bg.createLinearGradient(tlx + sideOff, tly + sideOff, tlx + sideOff + plinthW, tly + sideOff + plinthW);
+        sideShade.addColorStop(0,    'rgba(40, 28, 60, 0.40)');
+        sideShade.addColorStop(0.6,  'rgba(0, 0, 0, 0)');
+        sideShade.addColorStop(1,    'rgba(0, 0, 0, 0.55)');
+        bg.fillStyle = sideShade;
+        roundRectPath(bg, tlx + sideOff, tly + sideOff, plinthW, plinthW, radius);
+        bg.fill();
+      }
+    }
+    // Top face pass.
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const dark = ((r + c) & 1) === 1;
+        if (!dark) continue;
+        const tlx = ox + c * sq + inset, tly = oy + r * sq + inset;
+        bg.fillStyle = 'rgb(54, 38, 82)';
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        const sheen = bg.createLinearGradient(tlx, tly, tlx + plinthW, tly + plinthW);
+        sheen.addColorStop(0,    'rgba(255, 235, 200, 0.26)');
+        sheen.addColorStop(0.5,  'rgba(0, 0, 0, 0)');
+        sheen.addColorStop(1,    'rgba(0, 0, 0, 0.32)');
+        bg.fillStyle = sheen;
+        roundRectPath(bg, tlx, tly, plinthW, plinthW, radius);
+        bg.fill();
+        // Top + left edge highlight — the upper-left key-light hits.
+        bg.strokeStyle = 'rgba(255, 240, 210, 0.60)';
+        bg.lineWidth = 1.2;
+        bg.beginPath();
+        bg.moveTo(tlx + radius, tly + 0.5);
+        bg.lineTo(tlx + plinthW - radius, tly + 0.5);
+        bg.stroke();
+        bg.beginPath();
+        bg.moveTo(tlx + 0.5, tly + radius);
+        bg.lineTo(tlx + 0.5, tly + plinthW - radius);
+        bg.stroke();
+      }
+    }
+    bg.strokeStyle = 'rgba(120, 95, 165, 0.60)';
+    bg.lineWidth = 2;
+    bg.strokeRect(ox - 1, oy - 1, sq * 8 + 2, sq * 8 + 2);
+  }
+
+  // ---- STYLE: VAPOR family ----
+  // Three variants of the same fog-field renderer (board scaffolding
+  // + value-noise fBm + domain warp + piece bumps). Differences:
+  //   vapor       — baseline. Sparse drifting fog. Tile-aware color.
+  //   vapor-dense — heavy cloud cover, larger swirls, thicker mass.
+  //   vapor-bloom — fog accumulates at board edges, warm tile bias.
+  // All three apply tile-aware tinting: fog over dark squares reads
+  // dimmer than fog over light squares. The fog is additive
+  // (`lighter`) so this multiplier shrinks the brightness it adds to
+  // dark tiles → amplifies the dark/light tile distinction instead
+  // of washing the board flat.
+  else if (style === 'vapor') {
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.45, cap: 0.60,
+      baseFreq: 6, warpStrength: 0.50,
+      peakBoost: 1.6,
+      tileDarkTint: 0.70,
+    });
+  }
+  else if (style === 'vapor-dense') {
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.28, cap: 0.75,          // much more fog mass
+      baseFreq: 5,                         // larger features
+      warpStrength: 0.65,                  // stronger swirl
+      peakBoost: 1.3,
+      tileDarkTint: 0.72,
+      pieceBumpAlpha: 0.14,                // pieces less prominent in heavy fog
+    });
+  }
+  else if (style === 'vapor-bloom') {
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.40, cap: 0.62,
+      baseFreq: 6, warpStrength: 0.55,
+      peakBoost: 1.7,
+      tileDarkTint: 0.68,
+      edgeBoost: 0.28,                     // density boost toward edges
+      colorBase: [195, 195, 230],          // slightly warmer base
+      colorPeak: [60, 50, 20],             // peaks pull warm
+    });
+  }
+  else if (style === 'vapor-blanket') {
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.30, cap: 0.70,
+      baseFreq: 5, warpStrength: 0.55,
+      peakBoost: 1.4,
+      tileDarkTint: 0.72,
+      alphaFloor: 0.22,                    // no gaps — continuous coverage
+      pieceBumpAlpha: 0.12,
+    });
+  }
+  else if (style === 'vapor-thick') {
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.22, cap: 0.80,
+      baseFreq: 4, warpStrength: 0.60,
+      peakBoost: 1.2,
+      tileDarkTint: 0.74,
+      alphaFloor: 0.35,                    // very thick — board only via grid lines
+      pieceBumpAlpha: 0.10,
+    });
+  }
+  // ---- STARS-AS-BORDERS VARIANTS ----
+  // All five share the void deep-space background + a soft center-
+  // board nebula (depth cue). Then twinkling-star treatment marks
+  // square borders or corners. Pieces float freely with no
+  // borders/rings on the spheres themselves. A single `twinkle`
+  // value pulses globally so the demarcation breathes; the original
+  // Stars style established that aesthetic and we preserve it.
+  else if (style === 'stars-corner'
+        || style === 'stars-edge'
+        || style === 'stars-constellation'
+        || style === 'stars-scatter'
+        || style === 'stars-nebula') {
+    const ncx = ox + sq * 4, ncy = oy + sq * 4;
+    const nebulaBg = bg.createRadialGradient(ncx, ncy, 0, ncx, ncy, sq * 5);
+    nebulaBg.addColorStop(0,    'rgba(40, 22, 70, 0.20)');
+    nebulaBg.addColorStop(0.6,  'rgba(15, 8, 30, 0.08)');
+    nebulaBg.addColorStop(1,    'rgba(0, 0, 0, 0)');
+    bg.fillStyle = nebulaBg;
+    bg.fillRect(0, 0, w, h);
+
+    const twinkle = 0.70 + 0.30 * Math.sin(now * 0.0014);
+    bg.save();
+    bg.globalCompositeOperation = 'lighter';
+
+    if (style === 'stars-corner') {
+      // Twinkling stars at every grid corner (9x9 = 81 points). Each
+      // star has a tiny radial halo so the "twinkle" reads as a
+      // gentle pulse, not a hard dot.
+      for (let i = 0; i <= 8; i++) {
+        for (let j = 0; j <= 8; j++) {
+          const cx = ox + i * sq;
+          const cy = oy + j * sq;
+          const r0 = sq * 0.022;
+          const r1 = sq * 0.075;
+          const g = bg.createRadialGradient(cx, cy, 0, cx, cy, r1);
+          g.addColorStop(0,   `rgba(225, 240, 255, ${(0.95 * twinkle).toFixed(3)})`);
+          g.addColorStop(0.3, `rgba(170, 200, 250, ${(0.40 * twinkle).toFixed(3)})`);
+          g.addColorStop(1,   'rgba(170, 200, 250, 0)');
+          bg.fillStyle = g;
+          bg.beginPath();
+          bg.arc(cx, cy, r1, 0, Math.PI * 2);
+          bg.fill();
+          // Crisp core.
+          bg.fillStyle = `rgba(255, 255, 255, ${(0.85 * twinkle).toFixed(3)})`;
+          bg.beginPath();
+          bg.arc(cx, cy, r0, 0, Math.PI * 2);
+          bg.fill();
+        }
+      }
+    }
+    else if (style === 'stars-edge') {
+      // Beaded stars along every square edge — 5 per edge, evenly
+      // spaced. Edge stars are dimmer than the corner stars would be
+      // so the corners (which see overlap from 4 edges) become natural
+      // bright anchors.
+      const beadsPerEdge = 5;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const tlx = ox + c * sq, tly = oy + r * sq;
+          // 4 edges per cell — top, right, bottom, left.
+          for (let k = 0; k <= beadsPerEdge; k++) {
+            const t = k / beadsPerEdge;
+            const positions = [
+              [tlx + t * sq,    tly],
+              [tlx + sq,        tly + t * sq],
+              [tlx + t * sq,    tly + sq],
+              [tlx,             tly + t * sq],
+            ];
+            for (const [bx, by] of positions) {
+              const isCorner = (t === 0 || t === 1) && (k === 0 || k === beadsPerEdge);
+              const baseAlpha = isCorner ? 0.65 : 0.35;
+              const rr = sq * (isCorner ? 0.030 : 0.018);
+              bg.fillStyle = `rgba(200, 220, 255, ${(baseAlpha * twinkle).toFixed(3)})`;
+              bg.beginPath();
+              bg.arc(bx, by, rr, 0, Math.PI * 2);
+              bg.fill();
+            }
+          }
+        }
+      }
+    }
+    else if (style === 'stars-constellation') {
+      // STATIC + super-faded. No twinkle pulse. The connecting grid
+      // lines are barely visible; the corner stars are small soft
+      // glows that don't compete with pieces.
+      bg.strokeStyle = 'rgba(140, 170, 220, 0.10)';
+      bg.lineWidth = 1;
+      for (let i = 0; i <= 8; i++) {
+        bg.beginPath();
+        bg.moveTo(ox, oy + i * sq + 0.5);
+        bg.lineTo(ox + sq * 8, oy + i * sq + 0.5);
+        bg.stroke();
+        bg.beginPath();
+        bg.moveTo(ox + i * sq + 0.5, oy);
+        bg.lineTo(ox + i * sq + 0.5, oy + sq * 8);
+        bg.stroke();
+      }
+      for (let i = 0; i <= 8; i++) {
+        for (let j = 0; j <= 8; j++) {
+          const cx = ox + i * sq, cy = oy + j * sq;
+          const r0 = sq * 0.022;
+          const r1 = sq * 0.075;
+          const g = bg.createRadialGradient(cx, cy, 0, cx, cy, r1);
+          g.addColorStop(0,   'rgba(230, 245, 255, 0.32)');
+          g.addColorStop(0.4, 'rgba(180, 210, 255, 0.12)');
+          g.addColorStop(1,   'rgba(180, 210, 255, 0)');
+          bg.fillStyle = g;
+          bg.beginPath();
+          bg.arc(cx, cy, r1, 0, Math.PI * 2);
+          bg.fill();
+          bg.fillStyle = 'rgba(255, 255, 255, 0.30)';
+          bg.beginPath();
+          bg.arc(cx, cy, r0, 0, Math.PI * 2);
+          bg.fill();
+        }
+      }
+    }
+    else if (style === 'stars-scatter') {
+      // Irregularly placed stars along edges — hash-stable positions
+      // so the constellation doesn't dance every frame, each star
+      // twinkling on its own phase. Density and brightness kept low
+      // so the scatter never competes with pieces wrapping above it.
+      const fract = (n) => { const x = Math.sin(n) * 43758.5453; return x - Math.floor(x); };
+      const starsPerEdge = 3;                  // was 6 — half the density
+      let sid = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const tlx = ox + c * sq, tly = oy + r * sq;
+          for (let edge = 0; edge < 4; edge++) {
+            for (let k = 0; k < starsPerEdge; k++) {
+              sid++;
+              const t = fract(sid * 1.137);
+              let bx, by;
+              if (edge === 0)      { bx = tlx + t * sq; by = tly; }
+              else if (edge === 1) { bx = tlx + sq;     by = tly + t * sq; }
+              else if (edge === 2) { bx = tlx + t * sq; by = tly + sq; }
+              else                 { bx = tlx;          by = tly + t * sq; }
+              const phaseOffset = fract(sid * 3.713) * 6.28;
+              const indivTwinkle = 0.35 + 0.30 * Math.sin(now * 0.0017 + phaseOffset);
+              const rr = sq * (0.008 + 0.010 * fract(sid * 7.317));  // smaller
+              const a = 0.32 * indivTwinkle;   // halved brightness
+              // Cooler, less saturated color so they recede.
+              bg.fillStyle = `rgba(165, 185, 220, ${a.toFixed(3)})`;
+              bg.beginPath();
+              bg.arc(bx, by, rr, 0, Math.PI * 2);
+              bg.fill();
+            }
+          }
+        }
+      }
+    }
+    else if (style === 'stars-nebula') {
+      // STATIC faded nebula clouds at every corner — no pulse. Each
+      // corner has a stable hue offset for variety; the content
+      // itself doesn't animate. The "light circles that are faded"
+      // look the user requested.
+      const fract = (n) => { const x = Math.sin(n) * 43758.5453; return x - Math.floor(x); };
+      for (let i = 0; i <= 8; i++) {
+        for (let j = 0; j <= 8; j++) {
+          const cx = ox + i * sq, cy = oy + j * sq;
+          const hue = fract(i * 7.13 + j * 3.91);
+          const r = (180 + hue * 60) | 0;
+          const g = (190 + (1 - hue) * 40) | 0;
+          const b = (230 + hue * 20) | 0;
+          const r1 = sq * 0.32;
+          const grad = bg.createRadialGradient(cx, cy, 0, cx, cy, r1);
+          grad.addColorStop(0,   `rgba(${r}, ${g}, ${b}, 0.27)`);
+          grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.085)`);
+          grad.addColorStop(1,   `rgba(${r}, ${g}, ${b}, 0)`);
+          bg.fillStyle = grad;
+          bg.beginPath();
+          bg.arc(cx, cy, r1, 0, Math.PI * 2);
+          bg.fill();
+        }
+      }
+    }
+    bg.restore();
+  }
+  else if (style === 'vapor-drift') {
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.30, cap: 0.68,
+      baseFreq: 5, warpStrength: 0.55,
+      peakBoost: 1.5,
+      tileDarkTint: 0.72,
+      alphaFloor: 0.28,
+      edgeBoost: 0.20,
+      timeMul: 0.45,
+      pieceBumpAlpha: 0.12,
+    });
+  }
+  else if (style === 'vapor-streaks') {
+    // Horizontally elongated features — fog reads as wind-blown layers
+    // rather than blobs. Same renderer, different sample anisotropy.
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.40, cap: 0.65,
+      baseFreq: 4, warpStrength: 0.45,
+      peakBoost: 1.5,
+      tileDarkTint: 0.72,
+      xFreqMul: 0.45, yFreqMul: 1.55,      // wider in x, narrower in y
+      timeMul: 0.70,
+      pieceBumpAlpha: 0.14,
+    });
+  }
+  else if (style === 'vapor-aurora') {
+    // Aurora — hue swings teal → green → magenta with density. Less
+    // about cloud structure, more about color.
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.35, cap: 0.55,
+      baseFreq: 6, warpStrength: 0.60,
+      peakBoost: 1.4,
+      tileDarkTint: 0.78,
+      auroraMode: true,
+      timeMul: 0.40,
+      pieceBumpAlpha: 0.10,
+    });
+  }
+  else if (style === 'vapor-embers') {
+    // High base frequency + tight threshold → most of the field is
+    // transparent, only the densest peaks show as small bright dots.
+    // Reads as glowing embers drifting on dark void.
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.60, cap: 0.85,
+      baseFreq: 11, warpStrength: 0.40,
+      peakBoost: 2.4,
+      tileDarkTint: 0.80,
+      colorBase: [220, 200, 150],          // warm yellow base
+      colorPeak: [35, 50, 95],              // peaks pull toward white-blue
+      timeMul: 1.40,                        // embers drift faster
+      pieceBumpAlpha: 0.08,
+    });
+  }
+  else if (style === 'vapor-veins') {
+    // contourBand → render only where density is in [0.50, 0.56].
+    // Iso-density curves of the noise field become a network of
+    // glowing curved lines — looks like luminous veins/circuitry.
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.0, cap: 0.85,            // unused (contourBand path)
+      baseFreq: 5, warpStrength: 0.65,
+      peakBoost: 1.0,
+      tileDarkTint: 0.75,
+      contourBand: [0.50, 0.56],
+      colorBase: [150, 220, 245],
+      colorPeak: [80, 30, 10],
+      timeMul: 0.55,
+      pieceBumpAlpha: 0.08,
+    });
+  }
+  // ---- MINIMALIST VOID-VARIANTS ----
+  // All five share the deep-space background + a soft center-board
+  // nebula. Each variant shows the grid using PARTIAL line segments
+  // — full grids felt busy, dots felt insufficient, so we segment
+  // the grid lines in different ways. Pieces float freely (no
+  // grounding spot, no rings on the spheres).
+  else if (style === 'void-dashes'
+        || style === 'void-corners'
+        || style === 'void-centers'
+        || style === 'void-dark'
+        || style === 'void-rows') {
+    const ncx2 = ox + sq * 4, ncy2 = oy + sq * 4;
+    const nebula2 = bg.createRadialGradient(ncx2, ncy2, 0, ncx2, ncy2, sq * 5);
+    nebula2.addColorStop(0,    'rgba(40, 22, 70, 0.20)');
+    nebula2.addColorStop(0.6,  'rgba(15, 8, 30, 0.08)');
+    nebula2.addColorStop(1,    'rgba(0, 0, 0, 0)');
+    bg.fillStyle = nebula2;
+    bg.fillRect(0, 0, w, h);
+
+    if (style === 'void-dashes') {
+      // Full grid drawn as a dashed/dotted pattern — graph paper look
+      // with negative space along every line.
+      bg.save();
+      bg.setLineDash([sq * 0.07, sq * 0.06]);
+      bg.strokeStyle = 'rgba(150, 175, 220, 0.45)';
+      bg.lineWidth = 1;
+      for (let i = 0; i <= 8; i++) {
+        bg.beginPath();
+        bg.moveTo(ox, oy + i * sq + 0.5);
+        bg.lineTo(ox + sq * 8, oy + i * sq + 0.5);
+        bg.stroke();
+        bg.beginPath();
+        bg.moveTo(ox + i * sq + 0.5, oy);
+        bg.lineTo(ox + i * sq + 0.5, oy + sq * 8);
+        bg.stroke();
+      }
+      bg.restore();
+    }
+    else if (style === 'void-corners') {
+      // Only the ENDS of each grid edge — short segments anchored at
+      // every corner, extending ~18% of a square along each adjacent
+      // edge. At interior intersections four such segments meet to
+      // form a + made entirely of grid-line pieces (not crosses).
+      const segLen = sq * 0.18;
+      bg.strokeStyle = 'rgba(150, 175, 220, 0.55)';
+      bg.lineWidth = 1.2;
+      for (let i = 0; i <= 8; i++) {
+        for (let j = 0; j <= 8; j++) {
+          const cx = ox + i * sq + 0.5;
+          const cy = oy + j * sq + 0.5;
+          // Horizontal arms (left, right) clipped to the board.
+          if (i > 0) {
+            bg.beginPath();
+            bg.moveTo(cx - segLen, cy); bg.lineTo(cx, cy);
+            bg.stroke();
+          }
+          if (i < 8) {
+            bg.beginPath();
+            bg.moveTo(cx, cy); bg.lineTo(cx + segLen, cy);
+            bg.stroke();
+          }
+          // Vertical arms.
+          if (j > 0) {
+            bg.beginPath();
+            bg.moveTo(cx, cy - segLen); bg.lineTo(cx, cy);
+            bg.stroke();
+          }
+          if (j < 8) {
+            bg.beginPath();
+            bg.moveTo(cx, cy); bg.lineTo(cx, cy + segLen);
+            bg.stroke();
+          }
+        }
+      }
+    }
+    else if (style === 'void-centers') {
+      // Complementary to Corners — only the MIDDLE 40% of each grid
+      // edge is drawn. Reads as floating tick-marks along the lines
+      // where the corners and intersections are empty.
+      bg.strokeStyle = 'rgba(150, 175, 220, 0.50)';
+      bg.lineWidth = 1.2;
+      // Horizontal edges: for each row 0..8, for each column 0..7,
+      // draw the middle 40% of the edge segment between two corners.
+      for (let r = 0; r <= 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const y = oy + r * sq + 0.5;
+          const x0 = ox + c * sq + sq * 0.30;
+          const x1 = ox + c * sq + sq * 0.70;
+          bg.beginPath();
+          bg.moveTo(x0, y); bg.lineTo(x1, y);
+          bg.stroke();
+        }
+      }
+      // Vertical edges.
+      for (let c = 0; c <= 8; c++) {
+        for (let r = 0; r < 8; r++) {
+          const x = ox + c * sq + 0.5;
+          const y0 = oy + r * sq + sq * 0.30;
+          const y1 = oy + r * sq + sq * 0.70;
+          bg.beginPath();
+          bg.moveTo(x, y0); bg.lineTo(x, y1);
+          bg.stroke();
+        }
+      }
+    }
+    else if (style === 'void-dark') {
+      // Only the playable (dark) squares are outlined. Light squares
+      // are pure void. Easiest reading of "which squares matter."
+      bg.strokeStyle = 'rgba(150, 175, 220, 0.45)';
+      bg.lineWidth = 1;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const dark = ((r + c) & 1) === 1;
+          if (!dark) continue;
+          const tlx = ox + c * sq + 0.5;
+          const tly = oy + r * sq + 0.5;
+          bg.strokeRect(tlx, tly, sq - 1, sq - 1);
+        }
+      }
+    }
+    else if (style === 'void-rows') {
+      // Only the horizontal grid lines — board reads as 8 horizontal
+      // strata. Column positions become implicit from piece columns.
+      bg.strokeStyle = 'rgba(150, 175, 220, 0.40)';
+      bg.lineWidth = 1;
+      for (let i = 0; i <= 8; i++) {
+        bg.beginPath();
+        bg.moveTo(ox, oy + i * sq + 0.5);
+        bg.lineTo(ox + sq * 8, oy + i * sq + 0.5);
+        bg.stroke();
+      }
+    }
+  }
+
+  else if (style === 'vapor-smoke') {
+    // Heavy, dense, strongly warped — visibly smoky billows. Lower
+    // threshold than baseline (more of the field shows) + strong
+    // warp + cap pushed up.
+    renderVaporStyle(bg, ox, oy, sq, pieces, now, {
+      threshold: 0.20, cap: 0.78,
+      baseFreq: 4, warpStrength: 0.85,
+      peakBoost: 1.6,
+      tileDarkTint: 0.70,
+      alphaFloor: 0.18,                     // continuous coverage
+      timeMul: 0.85,
+      pieceBumpAlpha: 0.12,
+    });
+  }
+
+  // ---- Common: anti-grav floor spots under each piece ----
+  if (!pieces || !pieces.length) return;
+  const tints = TEAM_GLOWS[state.themeIdx] || TEAM_GLOWS[0];
+  // Per-style spot intensity. Carved/Glass already do depth via the
+  // chrome (cup walls / fake reflection horizon), so dim the spot
+  // there. Vapor's fog blanket IS the grounding — kill the spot
+  // entirely or it competes with the fog around the sphere.
+  let spotMul = 0.75;
+  if (style === 'slab') spotMul = 1.00;
+  else if (style === 'carved') spotMul = 0.30;
+  else if (style === 'plinth') spotMul = 0.85;
+  else if (style === 'plinth-glass') spotMul = 0.45;
+  else if (style === 'plinth-tall') spotMul = 0.95;
+  else if (style.startsWith('vapor')) spotMul = 0.00;
+  else if (style.startsWith('stars-')) spotMul = 0.00;
+  else if (style.startsWith('void-')) spotMul = 0.00;    // floating sensation, no grounding spot
+  else if (style === 'grid') spotMul = 0.00;             // clean grid — spheres float, no halo
+  else if (style === 'stars') spotMul = 0.00;            // constellation reads cleaner without spots
+  else if (style === 'void') spotMul = 0.00;
+  if (spotMul <= 0) return;
+  bg.save();
+  bg.globalCompositeOperation = 'lighter';
+  for (const p of pieces) {
+    if (p.tileX == null) continue;
+    const pr = p.radius;
+    const tint = p.player === 0 ? tints.p0 : tints.p1;
+    const cx = p.tileX;
+    const cy = p.tileY + pr * 0.35;
+    const rx = pr * 1.30;
+    const ry = pr * 0.45;
+    bg.save();
+    bg.translate(cx, cy);
+    bg.scale(1, ry / rx);
+    bg.translate(-cx, -cy);
+    const grad2 = bg.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    grad2.addColorStop(0,    `rgba(${tint}, ${(0.85 * spotMul).toFixed(3)})`);
+    grad2.addColorStop(0.40, `rgba(${tint}, ${(0.35 * spotMul).toFixed(3)})`);
+    grad2.addColorStop(1,    `rgba(${tint}, 0)`);
+    bg.fillStyle = grad2;
+    bg.beginPath();
+    bg.arc(cx, cy, rx, 0, Math.PI * 2);
+    bg.fill();
+    bg.restore();
+  }
+  bg.restore();
+}
+
+// ============================================================
+// 2D UI canvas — selection halo, legal-destination dots, landing
+// glow, capture embers. Dynamic per-frame stuff only. Drawn on the
+// canvas ABOVE the GL pieces so affordances overlay pieces; static
+// board chrome lives on bgCanvas BELOW the GL pieces.
+// ============================================================
+function drawBoard(pieces) {
+  const w = state.canvasSize.w, h = state.canvasSize.h;
+  ui.clearRect(0, 0, w, h);
+  drawKingMarks(pieces);
+
+  // Selection halo + legal destination affordances. All additive — they
+  // bloom the underlying piece/square rather than stamping shapes on top.
+  const fromIdx = state.mustJumpFrom !== null ? state.mustJumpFrom : state.selected;
+  if (fromIdx !== null) {
+    const tint = state.turn === 0 ? '255, 180, 90' : '120, 200, 255';
+    const pr = pieceRadius();
+    const tNow = performance.now();
+    const phase = (tNow % 1400) / 1400;
+    const pulse = 0.65 + 0.35 * Math.sin(phase * Math.PI * 2);
+
+    ui.save();
+    ui.globalCompositeOperation = 'lighter';
+
+    // Selection halo — soft team-tinted glow around the selected piece.
+    // Inner stop is transparent so the piece's own fractal interior is
+    // untouched; only the surrounding board pixels brighten.
+    const fp = canvasCoords(state, fromIdx);
+    const haloR = pr * 1.95;
+    const haloGrad = ui.createRadialGradient(fp.x, fp.y, pr * 0.88, fp.x, fp.y, haloR);
+    haloGrad.addColorStop(0,   `rgba(${tint}, 0)`);
+    haloGrad.addColorStop(0.35,`rgba(${tint}, ${0.28 * pulse})`);
+    haloGrad.addColorStop(1,   `rgba(${tint}, 0)`);
+    ui.fillStyle = haloGrad;
+    ui.beginPath();
+    ui.arc(fp.x, fp.y, haloR, 0, Math.PI * 2);
+    ui.fill();
+
+    // Legal destinations — small luminous dot at the center of each legal
+    // square, with a soft outer bloom. No outline, no ghost-piece outline.
+    const dests = checkersGame.legalDestinations(state);
+    for (const d of dests) {
+      const p = canvasCoords(state, d);
+      const bloomR = pr * 0.55;
+      const bloomGrad = ui.createRadialGradient(p.x, p.y, 0, p.x, p.y, bloomR);
+      bloomGrad.addColorStop(0, `rgba(${tint}, ${0.42 * pulse})`);
+      bloomGrad.addColorStop(1, `rgba(${tint}, 0)`);
+      ui.fillStyle = bloomGrad;
+      ui.beginPath();
+      ui.arc(p.x, p.y, bloomR, 0, Math.PI * 2);
+      ui.fill();
+      // crisp center point
+      ui.fillStyle = `rgba(${tint}, ${0.85 * pulse})`;
+      ui.beginPath();
+      ui.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+      ui.fill();
+    }
+    ui.restore();
+  }
+
+  // Landing ripples (jump-landings). Soft expanding ring on the landing
+  // square — replaces the previous "no landing feedback" gap.
+  drawLandingRipples();
+
+  // captures (wisp particles)
+  drawCaptures();
+}
+
+function drawLandingRipples() {
+  if (!state.ripples || state.ripples.length === 0) return;
+  const now = performance.now();
+  state.ripples = state.ripples.filter(r => now - r.born < r.duration);
+  const pr = pieceRadius();
+  ui.save();
+  ui.globalCompositeOperation = 'lighter';
+  // Soft additive radial glow at the landing point. No stroke, no ring
+  // outline — pure light puff that fades. Reads as "the piece arrived"
+  // without any drawn shape.
+  for (const r of state.ripples) {
+    const t = (now - r.born) / r.duration;
+    const fade = (1 - t) * (1 - t);   // quadratic ease-out
+    const radius = pr * (1.0 + t * 0.55);
+    const grad = ui.createRadialGradient(r.x, r.y, 0, r.x, r.y, radius);
+    grad.addColorStop(0,   `rgba(${r.tint}, ${(0.45 * fade).toFixed(3)})`);
+    grad.addColorStop(0.55,`rgba(${r.tint}, ${(0.18 * fade).toFixed(3)})`);
+    grad.addColorStop(1,   `rgba(${r.tint}, 0)`);
+    ui.fillStyle = grad;
+    ui.beginPath();
+    ui.arc(r.x, r.y, radius, 0, Math.PI * 2);
+    ui.fill();
+  }
+  ui.restore();
+}
+
+// Gold ring around every king — live board pieces, captured pieces in the
+// top-bar slot zone, in-flight tween targets. Reads from `pieces` so the
+// ring tracks the disc through tweens (state.kings[i] snaps to dst the
+// moment _executeMove fires; the disc is mid-air for ~600ms after that).
+function drawKingMarks(pieces) {
+  if (!pieces || pieces.length === 0) return;
+  ui.save();
+  ui.shadowBlur = 6;
+  for (const p of pieces) {
+    if (!p.king) continue;
+    // Warm side keeps the gold ring; the cool (blue) side gets a light,
+    // high-contrast blue so the crown reads against the blue fractal.
+    const isCool = p.player === 1;
+    ui.strokeStyle = isCool ? '#9fd8ff' : CONFIG.kingRingColor;
+    ui.shadowColor = isCool ? 'rgba(159, 216, 255, 0.6)' : 'rgba(255, 210, 74, 0.55)';
+    ui.lineWidth = Math.max(1.2, p.radius * 0.06);
+    ui.beginPath();
+    ui.arc(p.x, p.y, p.radius * 0.88, 0, Math.PI * 2);
+    ui.stroke();
+  }
+  ui.restore();
+}
+
+function drawCaptures() {
+  const now = performance.now();
+  state.captures = state.captures.filter(c => now - c.born < c.duration);
+  const pr = pieceRadius();
+  ui.save();
+  ui.globalCompositeOperation = 'lighter';
+  for (const cap of state.captures) {
+    const t = (now - cap.born) / cap.duration;
+    const fade = (1 - t) * (1 - t);
+    const tint = cap.player === 0 ? '255, 180, 90' : '120, 200, 255';
+
+    // Central flash — quick bright bloom that fades fast. Reads as
+    // "the piece dissolved into light" without any ring shape.
+    const flashR = pr * (0.7 + t * 1.8);
+    const flashGrad = ui.createRadialGradient(cap.x, cap.y, 0, cap.x, cap.y, flashR);
+    flashGrad.addColorStop(0,   `rgba(${tint}, ${(0.55 * fade).toFixed(3)})`);
+    flashGrad.addColorStop(0.45,`rgba(${tint}, ${(0.22 * fade).toFixed(3)})`);
+    flashGrad.addColorStop(1,   `rgba(${tint}, 0)`);
+    ui.fillStyle = flashGrad;
+    ui.beginPath();
+    ui.arc(cap.x, cap.y, flashR, 0, Math.PI * 2);
+    ui.fill();
+
+    // Sparse organic embers — random angles & speeds (pre-generated in
+    // addCapture). No equally-spaced ring; just a small burst of dust.
+    if (cap.embers) {
+      for (const e of cap.embers) {
+        const dist = pr * t * 2.2 * e.speed;
+        const ex = cap.x + Math.cos(e.ang) * dist;
+        const ey = cap.y + Math.sin(e.ang) * dist;
+        const size = 2.2 * e.sizeJitter * (1 - t * 0.65);
+        ui.fillStyle = `rgba(${tint}, ${(0.85 * fade).toFixed(3)})`;
+        ui.beginPath();
+        ui.arc(ex, ey, size, 0, Math.PI * 2);
+        ui.fill();
+      }
+    }
+  }
+  ui.restore();
+}
+
+// ============================================================
+// HIT-TESTING (any click maps to nearest square center)
+// ============================================================
+function squareAt(x, y) {
+  const c = Math.floor((x - boardGeom.ox) / boardGeom.sq);
+  const r = Math.floor((y - boardGeom.oy) / boardGeom.sq);
+  if (r < 0 || r > 7 || c < 0 || c > 7) return -1;
+  return r * 8 + c;
+}
+
+function pickFromEvent(ev) {
+  const rect = uiCanvas.getBoundingClientRect();
+  const sx = state.canvasSize.w / rect.width;
+  const sy = state.canvasSize.h / rect.height;
+  return {
+    x: (ev.clientX - rect.left) * sx,
+    y: (ev.clientY - rect.top) * sy,
+  };
+}
+
+uiCanvas.addEventListener('click', (ev) => {
+  if (state.winner !== null) return;
+  const { x, y } = pickFromEvent(ev);
+  const idx = squareAt(x, y);
+  if (idx < 0) return;
+  checkersGame.onClick(state, idx);
+  refreshHUD();
+});
+
+uiCanvas.addEventListener('mousemove', (ev) => {
+  const { x, y } = pickFromEvent(ev);
+  const idx = squareAt(x, y);
+  if (idx < 0 || !isPlaySquare(Math.floor(idx / 8), idx % 8) || state.board[idx] === null) {
+    if (state.hover) state.hover = null;
+    // Don't snap-reset zoom on leave; let it lerp back smoothly.
+    state.zoomTarget = 1.0;
+    return;
+  }
+  // Hover does NOT auto-zoom — it would change the piece's visual
+  // identity every time the cursor passed by. Hover only tracks which
+  // piece is under the cursor so scroll-wheel zoom knows the target.
+  // When the cursor moves to a new piece, reset target so the previous
+  // piece settles back to baseline before this one can be zoomed.
+  if (!state.hover || state.hover.idx !== idx) {
+    state.zoomTarget = 1.0;
+  }
+  state.hover = { idx };
+});
+
+uiCanvas.addEventListener('mouseleave', () => {
+  state.hover = null;
+  state.zoomTarget = CONFIG.hoverZoomDefault;
+});
+
+uiCanvas.addEventListener('wheel', (ev) => {
+  if (!state.hover) return;
+  ev.preventDefault();
+  const factor = ev.deltaY < 0 ? 1.2 : 1/1.2;
+  state.zoomTarget = Math.max(0.5, Math.min(CONFIG.hoverZoomMax, state.zoomTarget * factor));
+}, { passive: false });
+
+// Player-name state. Editable on the Live tab; persisted to
+// Names live only in memory for the session — every page reload and
+// every "New Game" click resets them to the defaults. Declared BEFORE
+// the event listener block below uses it (TDZ safety on `const`).
+// Player 1's default is the arcade-wide "who's playing" identity
+// (sessionStorage 'arcade.player', set by the hub / shell games).
+const ARCADE_PLAYER = (() => {
+  try {
+    const raw = sessionStorage.getItem('arcade.player');
+    return raw ? String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) : '';
+  } catch (e) { return ''; }
+})();
+const DEFAULT_PLAYER_NAMES = [ARCADE_PLAYER || 'Player 1', 'Player 2'];
+const PLAYER_NAMES = DEFAULT_PLAYER_NAMES.slice();
+function resetPlayerNames() {
+  PLAYER_NAMES[0] = DEFAULT_PLAYER_NAMES[0];
+  PLAYER_NAMES[1] = DEFAULT_PLAYER_NAMES[1];
+  for (const input of document.querySelectorAll('.player-name')) {
+    const idx = parseInt(input.dataset.player, 10);
+    input.value = PLAYER_NAMES[idx];
+  }
+}
+function playerLabel(idx) {
+  return PLAYER_NAMES[idx] || `Player ${idx + 1}`;
+}
+
+document.getElementById('newGameBtn').addEventListener('click', () => { resetPlayerNames(); initGame(); });
+document.getElementById('newGameBtnLive').addEventListener('click', () => { resetPlayerNames(); initGame(); });
+
+// --- Tab toggle (Live / Lab) ---
+const initialTab = localStorage.getItem('checkers.tab') || 'live';
+function setTab(name) {
+  // Toggle just the tab-* class — never overwrite className wholesale,
+  // or other classes (e.g. `production`) get nuked alongside it.
+  document.body.classList.remove('tab-live', 'tab-lab');
+  document.body.classList.add(`tab-${name}`);
+  for (const btn of document.querySelectorAll('.tab-btn')) {
+    btn.classList.toggle('active', btn.dataset.tab === name);
+  }
+  localStorage.setItem('checkers.tab', name);
+  // Canvas size depends on the layout (player cards eat horizontal
+  // space in Live tab). Trigger a resize so the canvas re-fits.
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 0);
+}
+for (const btn of document.querySelectorAll('.tab-btn')) {
+  btn.addEventListener('click', () => setTab(btn.dataset.tab));
+}
+setTab(initialTab);
+
+// --- Player name inputs ---
+for (const input of document.querySelectorAll('.player-name')) {
+  const idx = parseInt(input.dataset.player, 10);
+  input.value = PLAYER_NAMES[idx];
+  input.addEventListener('input', () => {
+    PLAYER_NAMES[idx] = input.value.trim();
+    refreshHUD();
+  });
+}
+
+const themeBtn = document.getElementById('themeBtn');
+function refreshThemeLabel() {
+  themeBtn.textContent = `Theme: ${THEMES[state.themeIdx].label}`;
+}
+refreshThemeLabel();
+themeBtn.addEventListener('click', () => {
+  state.themeIdx = (state.themeIdx + 1) % THEMES.length;
+  localStorage.setItem('checkers.themeIdx', String(state.themeIdx));
+  refreshThemeLabel();
+});
+
+const styleBtn = document.getElementById('styleBtn');
+function refreshStyleLabel() {
+  styleBtn.textContent = `Board: ${BOARD_STYLES[state.boardStyleIdx].label}`;
+}
+refreshStyleLabel();
+styleBtn.addEventListener('click', () => {
+  state.boardStyleIdx = (state.boardStyleIdx + 1) % BOARD_STYLES.length;
+  localStorage.setItem('checkers.boardStyleIdx', String(state.boardStyleIdx));
+  refreshStyleLabel();
+});
+
+const motionBtn = document.getElementById('motionBtn');
+function refreshMotionLabel() {
+  motionBtn.textContent = `Motion: ${MOTION_COUNTS[state.motionCountIdx].label}`;
+}
+function applyCurrentMotion() {
+  rerollMotionActive(MOTION_COUNTS[state.motionCountIdx].count);
+}
+applyCurrentMotion();
+refreshMotionLabel();
+motionBtn.addEventListener('click', () => {
+  // Cycle to next count AND re-roll which pieces animate.
+  state.motionCountIdx = (state.motionCountIdx + 1) % MOTION_COUNTS.length;
+  localStorage.setItem('checkers.motionCountIdx', String(state.motionCountIdx));
+  applyCurrentMotion();
+  refreshMotionLabel();
+});
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+const startTime = performance.now();
+function animate() {
+  const t = (performance.now() - startTime) / 1000;
+  state.zoom += (state.zoomTarget - state.zoom) * 0.12;
+
+  const pieces = checkersGame.visiblePieces(state);
+  for (const p of pieces) {
+    const isHovered = state.hover && state.hover.idx === p.idx;
+    p.hover = !!isHovered;
+    // Hovered piece's zoom comes from state.zoom (driven by scroll-wheel),
+    // but the disc radius stays put. Zoom shows deeper fractal detail in
+    // the same physical disc — no visual identity change just by hovering.
+    p.zoom = isHovered ? state.zoom : 1.0;
+    p.captureProgress = 0;
+  }
+  drawBackground(pieces);  // chrome + per-piece anti-grav floor spots
+  drawGL(pieces, t);
+  drawBoard(pieces);
+  // Bake a fractal piece as the favicon. Must happen INSIDE the rAF
+  // callback (after drawGL, before the next composite) since the
+  // WebGL drawing buffer isn't preserved otherwise.
+  if (faviconBakePending && t > 1.5) {
+    faviconBakePending = false;
+    bakeFavicon(pieces);
+  }
+  requestAnimationFrame(animate);
+}
+
+// Snapshot one fractal piece from the live GL canvas and inject as a
+// favicon. Runs once a few frames into the session so the fractal has
+// settled into a representative frame.
+let faviconBakePending = true;
+function bakeFavicon(pieces) {
+  try {
+    let chosen = null;
+    for (const p of pieces) {
+      if (p.idx >= 0 && p.player === 0) { chosen = p; break; }
+    }
+    if (!chosen) return;
+    const r = chosen.radius;
+    const dpr = state.dpr;
+    // drawImage takes source coords in DOM (top-down) space, regardless
+    // of GL's bottom-up internal origin. uploadPieces flips y for GL,
+    // but the browser composites that flipped image with top-down DOM
+    // coords, so we sample directly off chosen.x/y (already top-down).
+    const sx = (chosen.x - r) * dpr;
+    const sy = (chosen.y - r) * dpr;
+    const sw = 2 * r * dpr;
+    const sh = 2 * r * dpr;
+    const target = document.createElement('canvas');
+    target.width = 64; target.height = 64;
+    const ctx = target.getContext('2d');
+    // Clip to a circle so the favicon reads as a sphere, not a square
+    // tile. Transparent corners blend into whatever tab background the
+    // browser uses (light or dark).
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(32, 32, 31, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(glCanvas, sx, sy, sw, sh, 0, 0, 64, 64);
+    ctx.restore();
+    // Thin team-colored rim around the disc — gives the orb a defined
+    // silhouette at 16x16 favicon size where the fractal interior alone
+    // can read as noise.
+    ctx.strokeStyle = 'rgba(255, 158, 31, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(32, 32, 30.5, 0, Math.PI * 2);
+    ctx.stroke();
+    const url = target.toDataURL('image/png');
+    const link = document.getElementById('faviconLink');
+    if (link) link.href = url;
+  } catch (e) {
+    console.warn('favicon bake failed:', e);
+  }
+}
+
+// ============================================================
+// INIT + HUD
+// ============================================================
+function initGame() {
+  checkersGame.init(state);
+  refreshHUD();
+}
+
+// Re-roll which pieces are in the "moving" set. Identified by stable
+// piece ID (assigned at game start, preserved across moves/captures),
+// so the same physical pieces stay animated as the board mutates —
+// captures don't shuffle which pieces are frozen.
+function rerollMotionActive(count) {
+  // Pool: stable IDs of all 24 starting pieces — dark squares on rows
+  // 0,1,2 and 5,6,7. Stable IDs equal initial board index, so this
+  // matches what init() assigns.
+  const pool = [];
+  for (let r = 0; r < 8; r++) {
+    if (r >= 3 && r <= 4) continue;
+    for (let c = 0; c < 8; c++) {
+      if (isPlaySquare(r, c)) pool.push(r * 8 + c);
+    }
+  }
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const active = new Set();
+  for (let i = 0; i < Math.min(count, pool.length); i++) active.add(pool[i]);
+  state.motionActiveSet = active;
+}
+
+function refreshHUD() {
+  const ti = document.getElementById('turnIndicator');
+  const msg = document.getElementById('message');
+  let html;
+  if (state.winner !== null) {
+    html = `<span class="${state.winner === 0 ? 'p1' : 'p2'}">${playerLabel(state.winner)} wins</span>`;
+  } else {
+    const cls = state.turn === 0 ? 'p1' : 'p2';
+    let label = `${playerLabel(state.turn)}'s turn`;
+    if (state.mustJumpFrom !== null) label = `${playerLabel(state.turn)} — chain jump`;
+    html = `<span class="${cls}">${label}</span>`;
+  }
+  if (ti) ti.innerHTML = html;
+  msg.textContent = state.message || '';
+  refreshLivePanels();
+}
+
+// Top-bar live overlay: piece counts + "Name vs Name" + turn line.
+// Reads state.board so the counts stay in sync with the game without
+// any captured-list bookkeeping for display purposes (the actual
+// captured fractals are rendered via visiblePieces).
+function refreshLivePanels() {
+  const counts = [0, 0];
+  for (let i = 0; i < 64; i++) {
+    if (state.board[i] !== null) counts[state.board[i]]++;
+  }
+  for (let p = 0; p < 2; p++) {
+    // Update the numeric portion only — preserve the "left" suffix span.
+    const numEl = document.querySelector(`.count[data-count="${p}"] .count-num`);
+    if (numEl) numEl.textContent = String(counts[p]);
+    // Highlight the active player's name input with a solid underline,
+    // or mark the winner's name once the game ends (since we hide
+    // the verbose "Player X wins" message div in production).
+    const nameInput = document.querySelector(`.player-name[data-player="${p}"]`);
+    if (nameInput) {
+      const isActive = state.winner === null && state.turn === p;
+      const isWinner = state.winner === p;
+      nameInput.classList.toggle('active-turn', isActive);
+      nameInput.classList.toggle('winner', isWinner);
+    }
+  }
+}
+
+// ============================================================
+// RESIZE
+// ============================================================
+function resize() {
+  const wrap = document.getElementById('canvasWrap');
+  const rect = wrap.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  state.canvasSize.w = rect.width;
+  state.canvasSize.h = rect.height;
+  state.dpr = dpr;
+  for (const c of [glCanvas, uiCanvas, bgCanvas]) {
+    c.width = rect.width * dpr;
+    c.height = rect.height * dpr;
+    c.style.width = rect.width + 'px';
+    c.style.height = rect.height + 'px';
+  }
+  ui.setTransform(dpr, 0, 0, dpr, 0, 0);
+  bg.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (gl2d) gl2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  recomputeBoardGeom();
+  updateCapturedZoneRects();
+  drawBackground();  // initial chrome paint; animate redraws every frame
+}
+function watchDPR() {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  mq.addEventListener('change', () => { resize(); watchDPR(); }, { once: true });
+}
+window.addEventListener('resize', resize);
+
+// ---- fullscreen toggle (web + mobile, with iOS Safari fallback) ----------
+const fsBtn = document.getElementById('fsBtn');
+const fsBtnLive = document.getElementById('fsBtnLive');
+function syncFsButtons(on) {
+  for (const b of [fsBtn, fsBtnLive]) {
+    if (!b) continue;
+    b.textContent = on ? '⤡' : '⛶';
+    b.title = on ? 'Exit fullscreen' : 'Fullscreen';
+  }
+}
+function fsElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+function isFullscreen() {
+  const wrap = document.getElementById('canvasWrap');
+  return fsElement() === wrap || wrap.classList.contains('pseudo-fs');
+}
+function onFsChange() {
+  const on = isFullscreen();
+  syncFsButtons(on);
+  // Layout changed — re-measure now and again next frame to stay crisp.
+  resize();
+  requestAnimationFrame(resize);
+}
+function toggleFullscreen() {
+  const el = document.getElementById('canvasWrap');
+  if (isFullscreen()) {
+    if (el.classList.contains('pseudo-fs')) { el.classList.remove('pseudo-fs'); onFsChange(); }
+    else if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    return;
+  }
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) {
+    // Some browsers reject (e.g. iframe perms) — fall back to the CSS cover.
+    Promise.resolve(req.call(el)).catch(() => { el.classList.add('pseudo-fs'); onFsChange(); });
+  } else {
+    el.classList.add('pseudo-fs'); onFsChange();      // iOS Safari path
+  }
+}
+for (const b of [fsBtn, fsBtnLive]) {
+  if (b) b.addEventListener('click', (e) => { e.preventDefault(); toggleFullscreen(); });
+}
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
+
+// ============================================================
+// PRODUCTION MODE — deployed at motisorkin.com/games/*. The body
+// class + h1-suffix hiding now happens via an inline script at the
+// TOP of <body> (so it lands before first paint, no FOUC).
+// Here we only need to force the Live tab.
+// ============================================================
+const IS_PRODUCTION = document.documentElement.classList.contains('production');
+if (IS_PRODUCTION) setTab('live');
+
+// ============================================================
+// MULTIPLAYER — Supabase Realtime + a single public.checkers_matches
+// row per game. Friends-only: any browser with the match id can
+// read+write. State is synced as full-row UPDATEs; receivers compare
+// last_updater to their own client uuid to ignore self-echoes.
+// ============================================================
+// Online play needs your own Supabase project with a checkers_matches table.
+// Left empty, the "Play with a friend" button is hidden.
+const MP_SUPABASE_URL = '';
+const MP_SUPABASE_KEY = '';
+
+let mpClientId = localStorage.getItem('checkers.clientId');
+if (!mpClientId) {
+  mpClientId = (crypto.randomUUID && crypto.randomUUID()) ||
+    (Date.now().toString(16) + Math.random().toString(16).slice(2));
+  localStorage.setItem('checkers.clientId', mpClientId);
+}
+
+const mp = {
+  matchId: null,
+  mySeat: null,           // 0, 1, 'spectator', or null when local
+  client: null,
+  channel: null,
+  applyingRemote: false,  // suppress broadcasts while applying inbound state
+};
+
+async function mpLoadSDK() {
+  if (window.__supabaseLib) return window.__supabaseLib;
+  window.__supabaseLib = await import('https://esm.sh/@supabase/supabase-js@2.45.0');
+  return window.__supabaseLib;
+}
+
+function mpBuildPayload() {
+  return {
+    board: state.board,
+    kings: state.kings,
+    captured: state.captured,
+    turn: state.turn,
+    winner: state.winner,
+    must_jump_from: state.mustJumpFrom,
+    p1_name: PLAYER_NAMES[0],
+    p2_name: PLAYER_NAMES[1],
+    last_updater: mpClientId,
+  };
+}
+
+// Show / refresh the share-link panel. `row` is the most recent match
+// row (from create/join/realtime); if omitted, only the URL + seat
+// strings refresh (status line stays).
+function mpUpdateShare(row) {
+  const panel = document.getElementById('mpSharePanel');
+  const urlEl = document.getElementById('mpShareUrl');
+  const titleEl = document.getElementById('mpShareTitle');
+  const statusEl = document.getElementById('mpShareStatus');
+  if (!panel || !urlEl || !statusEl) return;
+  if (mp.matchId === null) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  urlEl.value = location.href;
+  const p2Joined = !!(row && row.p2_client);
+  const p1Name = (row && row.p1_name) || playerLabel(0);
+  const p2Name = (row && row.p2_name) || playerLabel(1);
+  if (mp.mySeat === 'spectator') {
+    titleEl.textContent = 'Match link';
+    statusEl.innerHTML = `Spectating — <span class="p1">${escapeHtml(p1Name)}</span> vs <span class="p2">${escapeHtml(p2Name)}</span>`;
+  } else if (mp.mySeat === 0) {
+    titleEl.textContent = p2Joined ? 'Match in progress' : 'Send this link to your friend';
+    statusEl.innerHTML = p2Joined
+      ? `You are <span class="p1">${escapeHtml(p1Name)}</span> (orange) · friend joined as <span class="p2">${escapeHtml(p2Name)}</span>`
+      : `You are <span class="p1">${escapeHtml(p1Name)}</span> (orange) · waiting for your friend to open the link…`;
+  } else if (mp.mySeat === 1) {
+    titleEl.textContent = 'Match in progress';
+    statusEl.innerHTML = `You are <span class="p2">${escapeHtml(p2Name)}</span> (blue) · playing <span class="p1">${escapeHtml(p1Name)}</span>`;
+  }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+
+async function mpCreateMatch() {
+  try {
+    const { createClient } = await mpLoadSDK();
+    if (!mp.client) mp.client = createClient(MP_SUPABASE_URL, MP_SUPABASE_KEY);
+    initGame();
+    const row = { ...mpBuildPayload(), p1_client: mpClientId };
+    const { data, error } = await mp.client.from('checkers_matches').insert(row).select().single();
+    if (error) throw error;
+    mp.matchId = data.id;
+    mp.mySeat = 0;
+    await mpSubscribe(data.id);
+    const url = new URL(location.href);
+    url.searchParams.set('match', data.id);
+    history.replaceState(null, '', url.toString());
+    mpUpdateShare(data);
+    // Best-effort clipboard copy. Some browsers reject the write
+    // outside a "user activation" context, but since this runs in
+    // the synchronous click handler chain it usually succeeds.
+    // Either way the URL is visible in the share panel.
+    try { await navigator.clipboard.writeText(url.toString()); } catch (_) {}
+    state.message = `Match started — send the link above to your friend.`;
+    refreshHUD();
+  } catch (e) {
+    console.error(e);
+    state.message = 'Could not create match: ' + (e.message || e);
+    refreshHUD();
+  }
+}
+
+async function mpJoinMatch(id) {
+  try {
+    const { createClient } = await mpLoadSDK();
+    if (!mp.client) mp.client = createClient(MP_SUPABASE_URL, MP_SUPABASE_KEY);
+    const { data, error } = await mp.client.from('checkers_matches').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      state.message = "Match not found — starting a local game.";
+      state.awaitingRemoteSync = false;
+      document.getElementById('canvasWrap')?.classList.remove('mp-loading');
+      refreshHUD();
+      return;
+    }
+    mp.matchId = id;
+    if (data.p1_client === mpClientId) {
+      mp.mySeat = 0;
+    } else {
+      // The link IS the seat — anyone who opens it becomes player 2.
+      // Overwrites any prior p2_client (e.g. from a host's own test-open
+      // in another browser), which previously locked subsequent joiners
+      // into 'spectator' with no recovery path. Two-friends-simultaneous
+      // race resolves via realtime broadcasts to the last opener.
+      const { error: e2 } = await mp.client.from('checkers_matches')
+        .update({ p2_client: mpClientId, last_updater: mpClientId })
+        .eq('id', id);
+      if (e2) {
+        console.error('mp seat-2 claim failed:', e2);
+        mp.mySeat = 'spectator';
+      } else {
+        mp.mySeat = 1;
+      }
+    }
+    mpApplyRemote(data);
+    await mpSubscribe(id);
+    mpUpdateShare(data);
+    // If we just claimed seat 2, the row needs a re-read so the host's
+    // Realtime sub fires for them too. Our UPDATE above triggers it.
+  } catch (e) {
+    console.error(e);
+    state.message = 'Could not join match: ' + (e.message || e);
+    state.awaitingRemoteSync = false;
+    document.getElementById('canvasWrap')?.classList.remove('mp-loading');
+    refreshHUD();
+  }
+}
+
+async function mpSubscribe(id) {
+  if (mp.channel) try { await mp.client.removeChannel(mp.channel); } catch (_) {}
+  mp.channel = mp.client.channel(`match:${id}`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'checkers_matches',
+      filter: `id=eq.${id}`,
+    }, (payload) => {
+      if (payload.new.last_updater === mpClientId) return;
+      mpApplyRemote(payload.new);
+    });
+  mp.channel.subscribe();
+}
+
+// Compare the previous local board to an incoming remote board and,
+// if the diff is a clean single-piece move (with optional capture),
+// return the squares involved. Returns null for initial sync, new-game
+// reset, multi-piece changes, or anything else we can't sensibly
+// animate as a slide/jump tween.
+function mpDiffMove(prevBoard, newBoard) {
+  const disappeared = [], appeared = [];
+  for (let i = 0; i < 64; i++) {
+    const a = prevBoard[i], b = newBoard[i];
+    if (a === null && b === null) continue;
+    if (a !== null && b === null) disappeared.push(i);
+    else if (a === null && b !== null) appeared.push(i);
+    else if (a !== b) return null;  // owner flipped without empty intermediate
+  }
+  if (appeared.length !== 1) return null;
+  const dst = appeared[0];
+  const moverPlayer = newBoard[dst];
+  let src = -1, captured = -1;
+  for (const i of disappeared) {
+    if (prevBoard[i] === moverPlayer && src === -1) src = i;
+    else captured = i;
+  }
+  if (src === -1) return null;
+  if (disappeared.length > 2) return null;  // multi-capture in one broadcast — skip
+  return { src, dst, captured: captured === -1 ? null : captured };
+}
+
+// Replicate the move tween that _executeMove sets up locally, but for
+// a move the OPPONENT just made. Reads captured-piece metadata from
+// the previous (pre-update) board so the wisps & wipe-in match local
+// captures. visiblePieces / drawBackground will pick this up on the
+// next frame as if a local _executeMove had run.
+function mpAnimateRemoteMove(prevBoard, prevKings, prevPieceIds, diff) {
+  const { src, dst, captured } = diff;
+  const srcXY = canvasCoords(state, src);
+  const dstXY = canvasCoords(state, dst);
+  const isJump = captured !== null;
+  let capturedPlayer = null, capturedKing = false, captureXY = null;
+  let capturedStableId = null;
+  if (isJump) {
+    capturedPlayer = prevBoard[captured];
+    capturedKing   = prevKings[captured];
+    capturedStableId = prevPieceIds ? prevPieceIds[captured] : null;
+    const c = canvasCoords(state, captured);
+    captureXY = { x: c.x, y: c.y };
+  }
+  state.moveAnim = {
+    destIdx: dst,
+    fromX: srcXY.x, fromY: srcXY.y,
+    toX:   dstXY.x, toY:   dstXY.y,
+    startTime: performance.now(),
+    duration: isJump ? 620 : 560,
+    isJump,
+    captureIdx:    isJump ? captured : null,
+    captureXY,
+    capturedPlayer,
+    capturedKing,
+    capturedStableId,
+    wispsFired: false,
+  };
+}
+
+function mpApplyRemote(row) {
+  mp.applyingRemote = true;
+  try {
+    // Snapshot the pre-update board so we can detect a single-move
+    // diff (for animation) and read captured-piece kingship.
+    const prevBoard = state.board;
+    const prevKings = state.kings;
+    const prevPieceIds = state.pieceIds;
+    const moveDiff = mpDiffMove(prevBoard, row.board);
+
+    state.board = row.board;
+    state.kings = row.kings;
+    state.captured = row.captured || [[], []];
+    state.turn = row.turn;
+    state.winner = row.winner;
+    state.mustJumpFrom = row.must_jump_from;
+    state.selected = null;
+
+    // Maintain stable per-piece IDs across the remote update so each
+    // piece's fractal seed doesn't reshuffle when the opponent moves.
+    // Clean single-piece diff → transfer the moved piece's ID and
+    // attach the captured piece's ID to the newest captured entry.
+    // Otherwise (initial sync / multi-piece reset) → regenerate IDs
+    // from the current board; pieces get fresh stable IDs from here.
+    if (moveDiff && prevPieceIds) {
+      const next = prevPieceIds.slice();
+      const movedId = next[moveDiff.src];
+      next[moveDiff.dst] = movedId;
+      next[moveDiff.src] = null;
+      if (moveDiff.captured !== null) {
+        const capturedId = next[moveDiff.captured];
+        next[moveDiff.captured] = null;
+        const capPlayer = prevBoard[moveDiff.captured];
+        const arr = state.captured[capPlayer];
+        if (arr && arr.length > 0 && (arr[arr.length - 1].stableId == null)) {
+          arr[arr.length - 1].stableId = capturedId;
+        }
+      }
+      state.pieceIds = next;
+    } else {
+      state.pieceIds = new Array(64).fill(null);
+      for (let i = 0; i < 64; i++) {
+        if (state.board[i] !== null) state.pieceIds[i] = i;
+      }
+    }
+    if (row.p1_name) PLAYER_NAMES[0] = row.p1_name;
+    if (row.p2_name) PLAYER_NAMES[1] = row.p2_name;
+    const i0 = document.querySelector('.player-name[data-player="0"]');
+    const i1 = document.querySelector('.player-name[data-player="1"]');
+    if (i0 && document.activeElement !== i0) i0.value = PLAYER_NAMES[0];
+    if (i1 && document.activeElement !== i1) i1.value = PLAYER_NAMES[1];
+
+    // Animate the opponent's move iff the diff is clean (one slide or
+    // one jump). Anything else — initial sync, name-only update, new
+    // game, multi-piece reset — just snaps to new state.
+    // Suppress on the FIRST sync after joining (awaitingRemoteSync):
+    // prevBoard is the freshly-initialised starting board, so a single
+    // historical move would otherwise replay as if it just happened.
+    if (moveDiff && !state.awaitingRemoteSync) {
+      mpAnimateRemoteMove(prevBoard, prevKings, prevPieceIds, moveDiff);
+    }
+
+    state.message = (state.winner !== null)
+      ? state.message
+      : `${playerLabel(state.turn)}'s turn.`;
+    refreshHUD();
+    mpUpdateShare(row);
+    if (state.awaitingRemoteSync) {
+      state.awaitingRemoteSync = false;
+      document.getElementById('canvasWrap')?.classList.remove('mp-loading');
+    }
+  } finally {
+    mp.applyingRemote = false;
+  }
+}
+
+async function mpBroadcast() {
+  if (!mp.matchId || mp.applyingRemote) return;
+  if (mp.mySeat === 'spectator') return;
+  try {
+    const { error } = await mp.client.from('checkers_matches')
+      .update(mpBuildPayload()).eq('id', mp.matchId);
+    if (error) console.error('mp broadcast:', error);
+  } catch (e) {
+    console.error('mp broadcast threw:', e);
+  }
+}
+
+// Hook into game logic. ONE broadcast per click — at the END of onClick,
+// after the turn flip / win check / chain-jump bookkeeping has settled.
+// Earlier we also broadcast from inside _executeMove, but that fired
+// BEFORE state.turn flipped, racing the post-onClick broadcast over HTTP
+// and sometimes clobbering the new turn with the old one — leaving the
+// opponent unable to move. Single tail-end broadcast is race-free.
+const _origOnClick = checkersGame.onClick.bind(checkersGame);
+checkersGame.onClick = function (s, idx) {
+  if (mp.matchId !== null) {
+    if (mp.mySeat === 'spectator') {
+      s.message = 'Spectating — opponents are playing.';
+      return;
+    }
+    if (mp.mySeat !== s.turn) {
+      s.message = `Waiting for ${playerLabel(s.turn)}…`;
+      return;
+    }
+  }
+  _origOnClick(s, idx);
+  if (mp.matchId && !mp.applyingRemote) mpBroadcast();
+};
+
+// Name edits should propagate in MP too.
+for (const input of document.querySelectorAll('.player-name')) {
+  input.addEventListener('input', () => { if (mp.matchId) mpBroadcast(); });
+}
+
+// Hook up the "Play with a friend" button (if present).
+const friendBtn = document.getElementById('playWithFriendBtn');
+if (friendBtn && !MP_SUPABASE_URL) friendBtn.hidden = true;
+else if (friendBtn) friendBtn.addEventListener('click', () => mpCreateMatch());
+
+// Share-panel: Copy link button (with momentary "Copied!" feedback).
+const copyBtn = document.getElementById('mpCopyBtn');
+if (copyBtn) {
+  copyBtn.addEventListener('click', async () => {
+    const input = document.getElementById('mpShareUrl');
+    if (!input) return;
+    const url = input.value;
+    try {
+      await navigator.clipboard.writeText(url);
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = 'Copied!';
+      copyBtn.disabled = true;
+      setTimeout(() => { copyBtn.textContent = orig; copyBtn.disabled = false; }, 1400);
+    } catch (_) {
+      // Clipboard rejected (often on insecure context or no user gesture).
+      // Fall back to selecting the URL so user can ⌘C manually.
+      input.focus();
+      input.select();
+    }
+  });
+}
+
+// Share-panel: Leave match (clears ?match=, ends the channel, returns
+// to a local game). The match row stays in the DB; same URL still
+// rejoins as the same seat thanks to the persistent client uuid.
+const leaveBtn = document.getElementById('mpLeaveBtn');
+if (leaveBtn) {
+  leaveBtn.addEventListener('click', async () => {
+    if (mp.channel) try { await mp.client.removeChannel(mp.channel); } catch (_) {}
+    mp.channel = null;
+    mp.matchId = null;
+    mp.mySeat = null;
+    const url = new URL(location.href);
+    url.searchParams.delete('match');
+    history.replaceState(null, '', url.toString());
+    mpUpdateShare();
+    resetPlayerNames();
+    initGame();
+    state.message = 'Left the match — playing locally.';
+    refreshHUD();
+  });
+}
+
+// "New Game" inside a match resets the row to a fresh board.
+document.getElementById('newGameBtnLive')?.addEventListener('click', () => {
+  if (mp.matchId) setTimeout(() => mpBroadcast(), 0);
+});
+
+// Bootstrap: if URL has ?match=<id>, join it. The join is async, so we
+// suppress the canvas until the remote state arrives — otherwise we'd
+// flash one frame of the default new-game board with default names
+// before the real state lands.
+const _matchParam = MP_SUPABASE_URL ? new URLSearchParams(location.search).get('match') : null;
+
+// ============================================================
+// BOOT
+// ============================================================
+resize();
+watchDPR();
+initGL();
+initGame();
+if (_matchParam) {
+  // Match-mode dressing — applied SYNCHRONOUSLY before the first paint
+  // so nothing pops in after the canvas appears:
+  //   1. Force the Live tab; hide Live/Lab nav.
+  //   2. Reveal the share-panel so it reserves vertical space; layout
+  //      stays fixed when mpUpdateShare fills in real content.
+  //   3. Hide the canvases behind a "Loading match…" overlay until
+  //      mpApplyRemote (success) or mpJoinMatch's error path clears it.
+  document.body.classList.add('match-mode');
+  setTab('live');
+  const sharePanel = document.getElementById('mpSharePanel');
+  if (sharePanel) sharePanel.style.display = '';
+  const shareUrl = document.getElementById('mpShareUrl');
+  if (shareUrl) shareUrl.value = location.href;
+  state.awaitingRemoteSync = true;
+  document.getElementById('canvasWrap')?.classList.add('mp-loading');
+  mpJoinMatch(_matchParam);
+}
+animate();
+</script>
+</body>
+</html>
