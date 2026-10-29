@@ -59,3 +59,5 @@ python3 -m http.server 8000
 The hub loads `games.json` with `fetch`, so opening `index.html` from disk will not list the games.
 
 Issues welcome.
+
+By Moti Sorkin · [github.com/motizzle](https://github.com/motizzle) · [motisorkin.com](https://motisorkin.com)
