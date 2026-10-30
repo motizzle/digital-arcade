@@ -17,7 +17,7 @@
       "slug": "checkers",
       "title": "Fractal Checkers",
       "tagline": "Checkers where every piece is a living fractal sphere.",
-      "url": "/checkers",
+      "url": "checkers.html",
       "builders": [
         "sorkins"
       ],
@@ -35,7 +35,7 @@
       "slug": "pong",
       "title": "Radioactive Pong",
       "tagline": "Timed pong — dodge your own goal, and the ball that splits in five.",
-      "url": "/pong",
+      "url": "pong.html",
       "builders": [
         "sorkins"
       ],
@@ -53,7 +53,7 @@
       "slug": "serpent",
       "title": "Serpent Bloom",
       "tagline": "A living solar system — the Sun leads Mercury through Neptune.",
-      "url": "/serpent",
+      "url": "serpent.html",
       "builders": [
         "sorkins"
       ],
@@ -71,7 +71,7 @@
       "slug": "tictactoe",
       "title": "Clauck Tac Toe",
       "tagline": "Three in a row — glazed blue X's vs sun-fired orange O's.",
-      "url": "/tictactoe",
+      "url": "tictactoe.html",
       "builders": [
         "sorkins"
       ],
@@ -89,7 +89,7 @@
       "slug": "grok-tictactoe",
       "title": "Grok Tac Toe",
       "tagline": "Blue glazed clay X vs orange terra-cotta O — confetti when you win.",
-      "url": "/grok-tictactoe",
+      "url": "grok-tictactoe.html",
       "builders": [
         "sorkins"
       ],
@@ -106,7 +106,7 @@
       "slug": "connect4",
       "title": "Connect 4",
       "tagline": "Four in a row of living fractal spheres — arm a bomb to blow up the board.",
-      "url": "/connect4",
+      "url": "connect4.html",
       "builders": [
         "sorkins"
       ],
@@ -124,7 +124,7 @@
       "slug": "f1-raceing",
       "title": "F1 Raceing",
       "tagline": "A yellow Lambo — dodge cars and debris down a long road.",
-      "url": "/f1-raceing",
+      "url": "f1-raceing.html",
       "builders": [
         "sorkins"
       ],

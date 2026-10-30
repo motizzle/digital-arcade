@@ -588,7 +588,7 @@ void main() {
       // Back-to-arcade link (top-left). Same host serves the hub at "/".
       const back = document.createElement('a');
       back.className = 'arcade-back';
-      back.href = '/';
+      back.href = './';
       back.textContent = '‹ Arcade';
       root.appendChild(back);
 
