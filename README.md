@@ -2,8 +2,6 @@
 
 Browser games whose pieces are fractal-shaded WebGL spheres (Mandelbrot, Julia, Newton).
 
-Play: https://arcade.motisorkin.com
-
 ![The arcade: pick a name, choose a game, Fractal Checkers, then Radioactive Pong being played](docs/demo.gif)
 
 ## What is here
