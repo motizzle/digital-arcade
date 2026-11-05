@@ -3403,11 +3403,11 @@ function refreshHUD() {
   const msg = document.getElementById('message');
   let html;
   if (state.winner !== null) {
-    html = `<span class="${state.winner === 0 ? 'p1' : 'p2'}">${playerLabel(state.winner)} wins</span>`;
+    html = `<span class="${state.winner === 0 ? 'p1' : 'p2'}">${escapeHtml(playerLabel(state.winner))} wins</span>`;
   } else {
     const cls = state.turn === 0 ? 'p1' : 'p2';
-    let label = `${playerLabel(state.turn)}'s turn`;
-    if (state.mustJumpFrom !== null) label = `${playerLabel(state.turn)} — chain jump`;
+    let label = `${escapeHtml(playerLabel(state.turn))}'s turn`;
+    if (state.mustJumpFrom !== null) label = `${escapeHtml(playerLabel(state.turn))} — chain jump`;
     html = `<span class="${cls}">${label}</span>`;
   }
   if (ti) ti.innerHTML = html;
@@ -3551,9 +3551,18 @@ const mp = {
   applyingRemote: false,  // suppress broadcasts while applying inbound state
 };
 
-async function mpLoadSDK() {
+// A fixed file whose hash the browser checks, so a changed CDN copy never runs.
+function mpLoadSDK() {
   if (window.__supabaseLib) return window.__supabaseLib;
-  window.__supabaseLib = await import('https://esm.sh/@supabase/supabase-js@2.45.0');
+  window.__supabaseLib = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.js';
+    s.integrity = 'sha384-dGnL7r9uccC9TdSdE05clTJ6esxMU42XBQ1/BWLzKQOBi7qR1aCMRIi0LzUmexIg';
+    s.crossOrigin = 'anonymous';
+    s.onload = () => resolve(window.supabase);
+    s.onerror = () => { window.__supabaseLib = null; reject(new Error('the online-play library did not load')); };
+    document.head.append(s);
+  });
   return window.__supabaseLib;
 }
 
