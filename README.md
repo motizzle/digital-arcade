@@ -1,4 +1,4 @@
-# Sorkin Arcade (digital-arcade)
+# Sorkin Video Games (digital-arcade)
 
 Browser games whose pieces are fractal-shaded WebGL spheres (Mandelbrot, Julia, Newton).
 
